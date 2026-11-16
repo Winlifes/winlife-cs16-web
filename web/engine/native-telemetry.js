@@ -133,6 +133,79 @@
             }, "iif");
             setWasmTableEntry(ammoDrawIndex, getWasmTableEntry(ammoHook));
         }
+        // Extend the real CS scoreboard: keep its sorting, fields, fonts and
+        // input. The pinned client clears each native name pointer after drawing
+        // that player's row. Observe that transition to get exact row positions
+        // without reproducing its team/sort rules or matching rendered text.
+        const scoreIndex=GOT._ZN14CHudScoreboard4DrawEf?.value;
+        const reverseIndex=GOT._ZN9DrawUtils20DrawHudStringReverseEiiiPKciiifb?.value;
+        const lengthIndex=GOT._ZN9DrawUtils12HudStringLenEPKcf?.value;
+        if(typeof Module.winlifeScoreboardDamage==="function"&&scoreIndex&&reverseIndex&&lengthIndex&&api(26)&&playerInfo&&api(11)&&api(130)){
+            const scoreDraw=getWasmTableEntry(scoreIndex),reverse=getWasmTableEntry(reverseIndex),measure=getWasmTableEntry(lengthIndex);
+            const character=api(26),fill=api(11),blend=api(130);
+            const label=_malloc(4),digits=_malloc(32);HEAPU8.set([68,77,71,0],label); // DMG, rendered by CS's own font.
+            const write=value=>{const s=String(value);for(let i=0;i<s.length;i++)HEAPU8[digits+i]=s.charCodeAt(i);HEAPU8[digits+s.length]=0;return digits;};
+            let board;
+            const flushed=()=>{
+                if(!board||board.y===undefined)return;
+                for(const entry of board.entries.values())if(!entry.drawn&&!HEAPU32[entry.address>>>2]){
+                    entry.drawn=true;board.rows.push({...entry,y:board.y,color:board.color});
+                }
+            };
+            const infoHook=addFunction((id,dest)=>{
+                playerInfo(id,dest);
+                const name=HEAPU32[dest>>>2];
+                if(board&&id>0&&id<=64&&name){
+                    const value=Module.winlifeScoreboardDamage(UTF8ToString(name,128));
+                    board.entries.set(id,{id,address:dest,value:Number.isSafeInteger(value)&&value>=0?String(value):"--"});
+                }
+            },"vii");
+            HEAPU32[(engine+21*4)>>>2]=infoHook;
+            const charHook=addFunction((x,y,ch,r,g,b)=>{
+                if(board){if(board.y!==y)flushed();board.y=y;board.color=[r,g,b];}
+                return character(x,y,ch,r,g,b);
+            },"iiiiiii");
+            HEAPU32[(engine+26*4)>>>2]=charHook;
+            const blendHook=addFunction((x,y,w,h,r,g,b,a)=>{
+                if(board){
+                    if(!board.frame){
+                        // First blend is the native board background. Reserve a
+                        // narrow extra column in its existing right-hand margin.
+                        let width=measure(label,1);
+                        for(const entry of board.entries.values())width=Math.max(width,measure(write(entry.value),1));
+                        const extra=Math.ceil(width)+12;
+                        const screen=GOT.gHUD?.value&&HEAP32[(GOT.gHUD.value+8940)>>>2];
+                        board.frame={x,y,w,h,extra:screen>x+w+extra+4?extra:0};
+                    }
+                    if(x===board.frame.x&&w===board.frame.w)w+=board.frame.extra;
+                }
+                return blend(x,y,w,h,r,g,b,a);
+            },"viiiiiiii");
+            HEAPU32[(engine+130*4)>>>2]=blendHook;
+            const fillHook=addFunction((x,y,w,h,r,g,b,a)=>{
+                const frame=board?.frame;
+                if(frame&&frame.extra){
+                    if(w===1&&x===frame.x+frame.w-1&&h>1)x+=frame.extra;
+                    else if(h===1&&x>=frame.x&&x<=frame.x+1&&(w===frame.w||w===frame.w-1))w+=frame.extra;
+                }
+                return fill(x,y,w,h,r,g,b,a);
+            },"viiiiiiii");
+            HEAPU32[(engine+11*4)>>>2]=fillHook;
+            const scoreHook=addFunction((self,time)=>{
+                if(board)return scoreDraw(self,time);
+                const capture={entries:new Map(),rows:[],y:undefined,color:[255,255,255],frame:undefined};
+                board=capture;let result;
+                try{result=scoreDraw(self,time);flushed();}finally{board=undefined;}
+                const frame=capture.frame;
+                if(frame?.extra){
+                    const x=frame.x+frame.w+frame.extra-6,min=frame.x+frame.w+3;
+                    reverse(x,frame.y+5,min,label,255,140,0,0,0);
+                    for(const row of capture.rows)reverse(x,row.y,min,write(row.value),...row.color,0,0);
+                }
+                return result;
+            },"iif");
+            setWasmTableEntry(scoreIndex,getWasmTableEntry(scoreHook));
+        }
         function teammateLabels() {
             if (!playerInfo || !localPlayer || !entityByIndex || !project || !traceLine || !playerTeam) return [];
             const local = localPlayer();

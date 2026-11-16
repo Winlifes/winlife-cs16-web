@@ -15,7 +15,7 @@ function typed(fn:Function,signature:string):Function {
 }
 
 /** Execute the shipped CS client, with only engine drawing/libc supplied by this harness. */
-export function crosshairWasm(install=true){
+export function crosshairWasm(install=true,extraImport?:(name:string,args:number[])=>any){
     const memory=new WebAssembly.Memory({initial:256}),table=new WebAssembly.Table({initial:65536,element:"anyfunc"});
     const HEAPU8=new Uint8Array(memory.buffer),HEAPU32=new Uint32Array(memory.buffer),HEAP32=new Int32Array(memory.buffer),HEAP16=new Int16Array(memory.buffer),HEAPF32=new Float32Array(memory.buffer),HEAPF64=new Float64Array(memory.buffer);
     const string=(p:number,n=1024)=>{let end=p;while(HEAPU8[end]&&end<p+n)end++;return new TextDecoder().decode(HEAPU8.subarray(p,end));};
@@ -33,7 +33,7 @@ export function crosshairWasm(install=true){
                 case "strtol":return parseInt(string(a[0]),a[2])||0;
                 case "strncpy":{const data=HEAPU8.slice(a[1],a[1]+a[2]);HEAPU8.set(data,a[0]);return a[0];}
                 case "sscanf":{const values=string(a[0]).split(/\s+/).map(Number);values.forEach((n,i)=>HEAP32[HEAPU32[(a[2]>>>2)+i]>>>2]=n);return values.length;}
-                default:throw new Error(`Unexpected native import: ${d.name}`);
+                default:if(extraImport)return extraImport(d.name,a);throw new Error(`Unexpected native import: ${d.name}`);
             }
         };
     }
@@ -73,6 +73,7 @@ export function crosshairWasm(install=true){
         get();
     }
     return {HEAPU32,HEAP32,HEAPF32,globals,ammo,hud,weapon,size,text,string,nativeRects,dimensions,
+        wasm:{exports,imports,table,malloc,add,api,HEAPU8,HEAP16,HEAPF64},
         draw:(time=1,intermission=0):CrosshairFrame|undefined=>{frame=undefined;table.get(redraw)(time,intermission);return frame;},
         fillOtherHUD:()=>table.get(fill)(10,20,50,2,255,255,255,255),
     };

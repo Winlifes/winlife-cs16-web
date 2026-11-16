@@ -32,7 +32,7 @@ export function scoreTable(players:ScorePlayer[],ownName:string,roster:NativeRos
  return root;
 }
 
-/** One small shared authoritative snapshot drives Tab and the final settlement. */
+/** Authoritative cumulative damage feeds the native Tab board and final settlement. */
 export class CombatBoardClient {
  private board?:CombatBoard;
  private state?:MatchView;
@@ -50,6 +50,10 @@ export class CombatBoardClient {
   finally{this.busy=false;this.render();}
  }
  match(state:MatchView):void{this.state=state;this.settled(state.phase==="finished");this.render();}
+ damage(name:string):number|undefined {
+  if(!this.board||!this.state||this.board.matchId!==this.state.id)return;
+  return this.board.players.find(p=>p.name===name)?.damage;
+ }
  start():void{if(!this.timer){this.timer=setInterval(()=>void this.read(),1000);void this.read();}}
  stop():void{clearInterval(this.timer);this.timer=undefined;}
  private async read():Promise<void>{
@@ -61,15 +65,10 @@ export class CombatBoardClient {
  private render():void{
   const native=this.native(),state=this.state,ready=this.board&&(!state?.id||this.board.matchId===state.id);
   const players=ready?this.board!.players:[];
-  const current=native.map(p=>players.find(s=>s.name===p.name)??{id:p.id,name:p.name,team:p.team,connected:true,kills:0,deaths:0,damage:0});
-  // Native roster owns the live team after a switch; match totals survive it.
-  const live=current.map(p=>({...p,team:native.find(n=>n.name===p.name)?.team??p.team}));
-  const key=JSON.stringify({live,players,native,own:this.name(),id:state?.id});
+  const key=JSON.stringify({players,native,own:this.name(),id:state?.id});
   if(key!==this.signature){this.signature=key;
-   el("combat-score-content").replaceChildren(scoreTable(live,this.name(),native));
    el("result-scores").replaceChildren(scoreTable(players,this.name(),native,true));
   }
-  el("combat-score-note").textContent=ready?"本场累计击杀、死亡与对敌伤害；延迟取自游戏原生连接。":"正在同步本场战绩…";
   if(state?.phase!=="finished")return;
   el("result-title").textContent=state.winner==="draw"?"双方平局":`队伍 ${state.winner} 获胜`;
   el("result-score").textContent=`${state.scoreA} : ${state.scoreB}`;

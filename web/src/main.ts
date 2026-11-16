@@ -136,7 +136,7 @@ async function enterRoom(session:RoomSession) {
                 menu: wasm("menu_emscripten_wasm32.wasm"), server: wasm("cs_emscripten_wasm32.wasm"),
                 client: wasm("client_emscripten_wasm32.wasm"), render: {gl4es: wasm("libref_webgl2.wasm")},
             },
-            module: {print, printErr: print,...{winlifeOnHUD:renderTeammates,winlifeOnCrosshair:renderCrosshair,winlifeOnChat:renderChat}},
+            module: {print, printErr: print,...{winlifeScoreboardDamage:(name:string)=>combatBoard.damage(name),winlifeOnHUD:renderTeammates,winlifeOnCrosshair:renderCrosshair,winlifeOnChat:renderChat}},
         });
         xash.onConnected = () => {rtcReady = true; telemetry.connected(true); damageReports.connected(true); mouseSettings.waiting(); gameUI.reconnecting(); xash?.sendEvent("winlife:hello",name); void refreshHealth();};
         xash.onDisconnected = () => {rtcReady = false; renderCrosshair(undefined); telemetry.connected(false); damageReports.connected(false); mouseSettings.waiting(); el("live-status").textContent = "连接中断，正在自动重连…";};

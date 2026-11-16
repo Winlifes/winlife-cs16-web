@@ -11,7 +11,6 @@ const releasedCommands=["-attack","-attack2","-forward","-back","-moveleft","-mo
 export class GameUI {
     private active=false;
     private isSettled=false;
-    private scoreHeld=false;
     private panel:Panel="team";
     private hasTeam=false;
     private teamReady=false;
@@ -53,10 +52,6 @@ export class GameUI {
         el("leave").onclick=leave;
         window.addEventListener("keydown",event=>this.keydown(event),true);
         for(const type of ["keyup","keypress"]){window.addEventListener(type,event=>{
-            if(this.active&&event instanceof KeyboardEvent&&event.key==="Tab"&&this.scoreHeld){
-                event.preventDefault();event.stopImmediatePropagation();
-                if(type==="keyup"){this.scoreHeld=false;this.command("-showscores");el("combat-scoreboard").hidden=this.panel!=="scores";}return;
-            }
             if(this.active&&this.blocksEngine(event))event.stopImmediatePropagation();
         },true);}
         // Keep menu clicks and typing out of SDL's document/window listeners.
@@ -123,9 +118,7 @@ export class GameUI {
     private clearControls():void {for(const command of releasedCommands)this.command(command);}
     private show(panel:Panel):void {
         if(this.isSettled&&!["result","damage","scores"].includes(panel))panel="result";
-        this.scoreHeld=false;
         this.panel=panel;
-        el("combat-scoreboard").hidden=panel!=="scores";
         if(panel!=="native")this.originalBuy=false;
         document.documentElement.dataset.inputMode=panel==="playing"?"playing":["native","scores","unlocked"].includes(panel)?"native":"menu";
         el("overlay").hidden=["playing","native","scores","unlocked"].includes(panel);
@@ -134,7 +127,7 @@ export class GameUI {
         el("native-menu-hint").hidden=panel!=="native"&&panel!=="unlocked";
         el("native-hint-text").textContent=panel==="unlocked"?"点击画面继续战斗":"选择装备后自动返回战斗";
         el("native-quick-buy").hidden=panel!=="native"||!this.buyMenu;
-        el("scoreboard-hint").hidden=true;
+        el("scoreboard-hint").hidden=panel!=="scores";
         el("hud-hint").hidden=true;
         el("team-back").hidden=!this.hasTeam;
         if(panel!=="playing"){
@@ -202,10 +195,6 @@ export class GameUI {
         if(el<HTMLDialogElement>("release-dialog").open){event.stopImmediatePropagation();return;}
         const key=event.key.toLowerCase();
         const editing=event.target instanceof Element&&!!event.target.closest("input,textarea,select");
-        if(key==="tab"&&!editing&&(this.panel==="playing"||this.scoreHeld)){
-            event.preventDefault();event.stopImmediatePropagation();
-            if(!event.repeat){this.scoreHeld=true;el("combat-scoreboard").hidden=false;this.command("+showscores");}return;
-        }
         if(key==="escape"){
             event.preventDefault();event.stopImmediatePropagation();this.pause();return;
         }

@@ -1,0 +1,20 @@
+[Unit]
+Description=Winlife CS 1.6 room gateway
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=cs16
+Group=cs16
+WorkingDirectory=/opt/winlife-cs16
+EnvironmentFile=/etc/winlife-cs16.env
+ExecStart=/opt/winlife-cs16/cs16-gateway
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=8
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+[Install]
+WantedBy=multi-user.target

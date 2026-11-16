@@ -1,0 +1,191 @@
+diff --git a/regamedll/CMakeLists.txt b/regamedll/CMakeLists.txt
+index 41b6eb6..80ae079 100644
+--- a/regamedll/CMakeLists.txt
++++ b/regamedll/CMakeLists.txt
+@@ -263,6 +263,7 @@ set(GAMEDLL_SRCS
+ 	"dlls/util.cpp"
+ 	"dlls/vehicle.cpp"
+ 	"dlls/weapons.cpp"
++	"dlls/winlife_combat.cpp"
+ 	"dlls/weapontype.cpp"
+ 	"dlls/world.cpp"
+ 	"dlls/API/CAPI_Impl.cpp"
+diff --git a/regamedll/dlls/cbase.cpp b/regamedll/dlls/cbase.cpp
+index e6edc87..9a59ccd 100644
+--- a/regamedll/dlls/cbase.cpp
++++ b/regamedll/dlls/cbase.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "winlife_combat.h"
+ 
+ DLL_FUNCTIONS gFunctionTable =
+ {
+@@ -1020,6 +1021,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBaseEntity, FireBullets, (ULONG cShots, VectorRef ve
+ 
+ void CBaseEntity::__API_HOOK(FireBullets)(ULONG cShots, VectorRef vecSrc, VectorRef vecDirShooting, VectorRef vecSpread, float flDistance, int iBulletType, int iTracerFreq, int iDamage, entvars_t *pevAttacker)
+ {
++	WinlifeShotScope winlifeShot;
+ 	static int tracerCount;
+ 	int tracer;
+ 
+@@ -1267,6 +1269,7 @@ LINK_HOOK_CLASS_CHAIN(VectorRef, CBaseEntity, FireBullets3, (VectorRef vecSrc, V
+ // This version is used by Players, uses the random seed generator to sync client and server side shots.
+ VectorRef CBaseEntity::__API_HOOK(FireBullets3)(VectorRef vecSrc, VectorRef vecDirShooting, float vecSpread, float flDistance, int iPenetration, int iBulletType, int iDamage, float flRangeModifier, entvars_t *pevAttacker, bool bPistol, int shared_rand)
+ {
++	WinlifeShotScope winlifeShot;
+ 	static Vector vecRet;
+ 
+ 	int iOriginalPenetration = iPenetration;
+diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
+index d34b74b..92b3ffe 100644
+--- a/regamedll/dlls/player.cpp
++++ b/regamedll/dlls/player.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "winlife_combat.h"
+ 
+ BOOL gInitHUD = TRUE;
+ 
+@@ -818,6 +819,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(TraceAttack)(entvars_t *pevAttacker, float
+ 		MESSAGE_END();
+ 	}
+ 
++	WinlifeTrace(this, ptr->iHitgroup, flDamage);
+ 	AddMultiDamage(pevAttacker, this, flDamage, bitsDamageType);
+ }
+ 
+@@ -908,6 +910,7 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
+ // etc are implemented with subsequent calls to TakeDamage using DMG_GENERIC.
+ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entvars_t *pevAttacker, FloatRef flDamage, int bitsDamageType)
+ {
++	WinlifeDamageScope winlifeDamage(this, pevInflictor, pevAttacker, bitsDamageType);
+ 	BOOL bTookDamage;
+ 	float flRatio = ARMOR_RATIO;
+ 	float flBonus = ARMOR_BONUS;
+diff --git a/regamedll/dlls/weapons.cpp b/regamedll/dlls/weapons.cpp
+index 6663e2e..bef7740 100644
+--- a/regamedll/dlls/weapons.cpp
++++ b/regamedll/dlls/weapons.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "winlife_combat.h"
+ 
+ short g_sModelIndexLaser;		// holds the index for the laser beam
+ short g_sModelIndexLaserDot;	// holds the index for the laser beam dot
+@@ -79,6 +80,7 @@ LINK_HOOK_VOID_CHAIN2(ClearMultiDamage)
+ // Resets the global multi damage accumulator
+ void EXT_FUNC __API_HOOK(ClearMultiDamage)()
+ {
++	WinlifeClearTraces();
+ 	gMultiDamage.hEntity = nullptr;
+ 	gMultiDamage.amount = 0;
+ 	gMultiDamage.type = 0;
+@@ -94,6 +96,7 @@ void EXT_FUNC __API_HOOK(ApplyMultiDamage)(entvars_t *pevInflictor, entvars_t *p
+ 		return;
+ 
+ 	hEnt->TakeDamage(pevInflictor, pevAttacker, gMultiDamage.amount, gMultiDamage.type);
++	WinlifeClearVictim(hEnt);
+ 
+ 	// check again, the entity may be removed after taking damage
+ 	if (hEnt)
+diff --git a/regamedll/dlls/winlife_combat.cpp b/regamedll/dlls/winlife_combat.cpp
+new file mode 100644
+index 0000000..facbb2c
+--- /dev/null
++++ b/regamedll/dlls/winlife_combat.cpp
+@@ -0,0 +1,65 @@
++#include "precompiled.h"
++#include "winlife_combat.h"
++#include <map>
++#include <string>
++#include <cstdio>
++#include <cmath>
++
++namespace {
++unsigned long long sequence = 0, current = 0;
++struct Traces { double weights[8] = {}; int hits[8] = {}; };
++std::map<CBaseEntity *, Traces> traces;
++std::string json(const char *s) {
++    std::string out = "\"";
++    for (const unsigned char *p = (const unsigned char *)s; *p; ++p) {
++        if (*p == '"' || *p == '\\') { out += '\\'; out += *p; }
++        else if (*p < 32) { char b[7]; std::snprintf(b, sizeof b, "\\u%04x", *p); out += b; }
++        else out += *p;
++    }
++    return out + "\"";
++}
++}
++WinlifeShotScope::WinlifeShotScope(): previous(current) { current = ++sequence; }
++WinlifeShotScope::~WinlifeShotScope() { current = previous; }
++void WinlifeClearTraces() { traces.clear(); }
++void WinlifeClearVictim(CBaseEntity *v) { traces.erase(v); }
++void WinlifeTrace(CBasePlayer *v, int group, float damage) {
++    if (damage <= 0) return;
++    if (group < 0 || group > 7) group = 0;
++    auto &t = traces[v]; t.weights[group] += damage; t.hits[group]++;
++}
++WinlifeDamageScope::WinlifeDamageScope(CBasePlayer *v, entvars_t *inflictor, entvars_t *a, int damageType):
++    victim(v), attacker(a ? CBasePlayer::Instance(a) : nullptr), health(v->pev->health), armor(v->pev->armorvalue), type(damageType), shot(0), weights{}, hits{} {
++    static bool ready = false;
++    if (!ready) { UTIL_LogPrintf("WINLIFE_COMBAT_READY 2\n"); ready = true; }
++    weapon[0] = 0;
++    if (!attacker || !attacker->IsPlayer() || attacker == victim || !inflictor) { attacker = nullptr; return; }
++    std::snprintf(weapon, sizeof weapon, "%s", v->GetKillerWeaponName(inflictor, a));
++    // An explosion must not reuse the last bullet's hit group or shot ID.
++    if (inflictor == a && !(type & (DMG_BLAST | DMG_EXPLOSION))) {
++        shot = current;
++        auto found = traces.find(v);
++        if (found != traces.end()) for (int i = 0; i < 8; ++i) {
++            weights[i] = found->second.weights[i]; hits[i] = found->second.hits[i];
++        }
++    }
++    if (!shot) shot = ++sequence;
++}
++WinlifeDamageScope::~WinlifeDamageScope() {
++    if (!attacker || health <= 0) return;
++    int damage = (int)std::lround(health - (victim->pev->health > 0 ? victim->pev->health : 0));
++    int armorDamage = (int)std::lround(armor - victim->pev->armorvalue);
++    if (damage <= 0) return;
++    if (armorDamage < 0) armorDamage = 0;
++    std::string parts = "[";
++    bool any = false;
++    for (int i = 0; i < 8; ++i) if (hits[i]) {
++        char b[100]; std::snprintf(b, sizeof b, "%s[%d,%d,%.5f]", any ? "," : "", i, hits[i], weights[i]); parts += b; any = true;
++    }
++    if (!any) parts += "[0,1,1]";
++    parts += "]";
++    UTIL_LogPrintf("WINLIFE_DAMAGE {\"version\":2,\"shot\":\"%llu\",\"attacker\":%d,\"attackerName\":%s,\"attackerTeam\":%d,\"victim\":%d,\"victimName\":%s,\"victimTeam\":%d,\"weapon\":%s,\"damage\":%d,\"armor\":%d,\"parts\":%s}\n",
++        shot, GETPLAYERUSERID(attacker->edict()), json(STRING(attacker->pev->netname)).c_str(), (int)attacker->m_iTeam,
++        GETPLAYERUSERID(victim->edict()), json(STRING(victim->pev->netname)).c_str(), (int)victim->m_iTeam,
++        json(weapon).c_str(), damage, armorDamage, parts.c_str());
++}
+diff --git a/regamedll/dlls/winlife_combat.h b/regamedll/dlls/winlife_combat.h
+new file mode 100644
+index 0000000..c2cb2c8
+--- /dev/null
++++ b/regamedll/dlls/winlife_combat.h
+@@ -0,0 +1,22 @@
++#pragma once
++
++// Observation only: never changes native damage, armour or pellet batching.
++struct WinlifeShotScope {
++    unsigned long long previous;
++    WinlifeShotScope();
++    ~WinlifeShotScope();
++};
++void WinlifeClearTraces();
++void WinlifeClearVictim(CBaseEntity *victim);
++void WinlifeTrace(CBasePlayer *victim, int group, float damage);
++struct WinlifeDamageScope {
++    CBasePlayer *victim, *attacker;
++    float health, armor;
++    int type;
++    unsigned long long shot;
++    char weapon[64];
++    double weights[8];
++    int hits[8];
++    WinlifeDamageScope(CBasePlayer *v, entvars_t *inflictor, entvars_t *a, int damageType);
++    ~WinlifeDamageScope();
++};

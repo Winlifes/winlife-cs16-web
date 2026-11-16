@@ -1,0 +1,159 @@
+diff --git a/engine/platform/posix/lib_posix.c b/engine/platform/posix/lib_posix.c
+index 3698d2e..7a4c84b 100644
+--- a/engine/platform/posix/lib_posix.c
++++ b/engine/platform/posix/lib_posix.c
+@@ -282,6 +282,13 @@ qboolean Platform_CheckLibraryDirectDependency( const byte *data, size_t size, c
+ 
+ void *COM_LoadLibrary( const char *dllname, int build_ordinals_table, qboolean directpath )
+ {
++	int loadflags = RTLD_NOW;
++#if XASH_APPLE && XASH_DEDICATED
++	// Dedicated servers keep one game loaded for their lifetime. YaPB and
++	// ReGameDLL register exit callbacks; retain their code until process exit
++	// instead of leaving Darwin's exit handlers pointing into an unmapped DSO.
++	loadflags |= RTLD_NODELETE;
++#endif
+ 	COM_ResetLibraryError();
+ 
+ 	// platforms where gameinfo mechanism is impossible
+@@ -297,7 +304,7 @@ void *COM_LoadLibrary( const char *dllname, int build_ordinals_table, qboolean d
+ 	if( !hInst )
+ 	{
+ 		// try to find by linker(LD_LIBRARY_PATH, DYLD_LIBRARY_PATH, LD_32_LIBRARY_PATH and so on...)
+-		void *pHandle = dlopen( dllname, RTLD_NOW );
++		void *pHandle = dlopen( dllname, loadflags );
+ 		if( pHandle )
+ 			return pHandle;
+ 
+@@ -315,7 +322,7 @@ void *COM_LoadLibrary( const char *dllname, int build_ordinals_table, qboolean d
+ 		return NULL;
+ 	}
+ 
+-	if( !( hInst->hInstance = dlopen( hInst->fullPath, RTLD_NOW ) ) )
++	if( !( hInst->hInstance = dlopen( hInst->fullPath, loadflags ) ) )
+ 	{
+ 		COM_PushLibraryError( dlerror() );
+ 		Mem_Free( hInst );
+diff --git a/engine/server/server.h b/engine/server/server.h
+index d61e51b..5d6bd23 100644
+--- a/engine/server/server.h
++++ b/engine/server/server.h
+@@ -192,6 +192,7 @@ typedef struct server_s
+ 	qboolean		playersonly;
+ 	qboolean		simulating;	// physics is running
+ 	qboolean		paused;
++	qboolean		match_settled; // console-owned settlement survives empty connections
+ 
+ 	// statistics
+ 	int		ignored_static_ents;
+diff --git a/engine/server/sv_client.c b/engine/server/sv_client.c
+index c95ce9a..f348c77 100644
+--- a/engine/server/sv_client.c
++++ b/engine/server/sv_client.c
+@@ -1743,6 +1743,7 @@ SV_Pause_f
+ static qboolean SV_Pause_f( sv_client_t *cl )
+ {
+ 	string	message;
++	if( sv.match_settled ) return true; // only a host-authorized rematch releases it
+ 
+ 	if( UI_CreditsActive( ))
+ 		return true;
+diff --git a/engine/server/sv_cmds.c b/engine/server/sv_cmds.c
+index ca729ae..e6b0b03 100644
+--- a/engine/server/sv_cmds.c
++++ b/engine/server/sv_cmds.c
+@@ -568,6 +568,25 @@ SV_Kick_f
+ Kick a user off of the server
+ ==================
+ */
++#if XASH_DEDICATED
++// The WebRTC gateway owns a unique local UDP endpoint per browser. Release
++// that player's slot as soon as its transport closes, including on page reload.
++static void SV_KickEndpoint_f( void )
++{
++	if( Cmd_Argc() != 2 )
++		return;
++	for( int i = 0; i < svs.maxclients; i++ )
++	{
++		sv_client_t *cl = &svs.clients[i];
++		if( cl->state >= cs_connected && !Q_strcmp( NET_AdrToString( cl->netchan.remote_address ), Cmd_Argv( 1 )))
++		{
++			SV_KickPlayer( cl, "WebRTC connection closed" );
++			return;
++		}
++	}
++}
++#endif
++
+ static void SV_Kick_f( void )
+ {
+ 	sv_client_t	*cl;
+@@ -1302,10 +1321,24 @@ void SV_InitHostCommands( void )
+ SV_InitOperatorCommands
+ ==================
+ */
++// Console-only desired pause state. Remote clients cannot invoke this through
++// SV_ExecuteClientCommand. Match settlement keeps networking/admin alive.
++static void SV_WinlifePause_f( void )
++{
++    if( Cmd_Argc() != 2 || sv.state != ss_active ) return;
++    qboolean desired = Q_atoi( Cmd_Argv( 1 )) != 0;
++    sv.match_settled = desired;
++    if( sv.paused != desired ) SV_TogglePause( desired ? "Match settled." : "New match starting." );
++}
++
+ void SV_InitOperatorCommands( void )
+ {
+ 	Cmd_AddCommand( "heartbeat", SV_Heartbeat_f, "send a heartbeat to the master server" );
+ 	Cmd_AddCommand( "kick", SV_Kick_f, "kick a player off the server by number or name" );
++#if XASH_DEDICATED
++	Cmd_AddCommand( "kickendpoint", SV_KickEndpoint_f, "release the player belonging to a gateway UDP endpoint" );
++	Cmd_AddCommand( "winlife_pause", SV_WinlifePause_f, "set match settlement pause state" );
++#endif
+ 	Cmd_AddCommand( "status", SV_Status_f, "print server status information" );
+ 	Cmd_AddCommand( "status2", SV_Status2_f, "print verbose server status information" );
+ 	Cmd_AddCommand( "stat", SV_StatusFormatted_f, "print server status information, tab-separated" );
+@@ -1349,6 +1382,10 @@ void SV_KillOperatorCommands( void )
+ {
+ 	Cmd_RemoveCommand( "heartbeat" );
+ 	Cmd_RemoveCommand( "kick" );
++#if XASH_DEDICATED
++	Cmd_RemoveCommand( "kickendpoint" );
++	Cmd_RemoveCommand( "winlife_pause" );
++#endif
+ 	Cmd_RemoveCommand( "status" );
+ 	Cmd_RemoveCommand( "status2" );
+ 	Cmd_RemoveCommand( "stat" );
+diff --git a/engine/server/sv_main.c b/engine/server/sv_main.c
+index 985e438..a942449 100644
+--- a/engine/server/sv_main.c
++++ b/engine/server/sv_main.c
+@@ -534,7 +534,7 @@ static void SV_CheckTimeouts( void )
+ 		}
+ 	}
+ 
+-	if( svs.maxclients > 1 && sv.paused && !numclients )
++	if( svs.maxclients > 1 && sv.paused && !numclients && !sv.match_settled )
+ 	{
+ 		// nobody left, unpause the server
+ 		SV_TogglePause( "Pause released since no players are left." );
+@@ -570,6 +570,8 @@ SV_IsSimulating
+ */
+ static qboolean SV_IsSimulating( void )
+ {
++	// Settlement pauses dedicated simulation too; packet processing stays live.
++	if( sv.paused ) return false;
+ 	if( Host_IsDedicated( ))
+ 		return true; // always active for dedicated servers
+ 
+@@ -607,7 +609,10 @@ static qboolean SV_RunGameFrame( void )
+ 	sv.simulating = SV_IsSimulating();
+ 
+ 	if( !sv.simulating )
++	{
++		if( sv.paused ) sv.time_residual = 0; // never catch up paused wall time
+ 		return true;
++	}
+ 
+ 	if( sv_fps.value != 0.0f )
+ 	{

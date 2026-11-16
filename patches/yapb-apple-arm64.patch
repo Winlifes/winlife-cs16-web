@@ -1,0 +1,15 @@
+diff --git a/cmake/YapbFlags.cmake b/cmake/YapbFlags.cmake
+index 7967806..3a912f3 100644
+--- a/cmake/YapbFlags.cmake
++++ b/cmake/YapbFlags.cmake
+@@ -179,6 +179,10 @@ if(CLANG_OR_GCC AND NOT ANDROID)
+       list(APPEND _ldflags -mmacosx-version-min=11.0 -Wl,-dead_strip)
+       list(APPEND _ldflags -Wl,--as-needed -Wl,--no-undefined)
+       list(APPEND _dist_ldflags -Wl,-soname,yapb${LIB_SUFFIX}.dylib)
++    elseif(_PROC STREQUAL "aarch64")
++      # Apple Silicon never supported the legacy 10.9/libstdc++ baseline.
++      list(APPEND _cflags -mmacosx-version-min=13.0)
++      list(APPEND _ldflags -lc++ -mmacosx-version-min=13.0)
+     else()
+       list(APPEND _cflags -mmacosx-version-min=10.9)
+       list(APPEND _ldflags -lstdc++ -mmacosx-version-min=10.9)

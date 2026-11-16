@@ -1,0 +1,20 @@
+[Unit]
+Description=Winlife authoritative combat report publisher
+After=winlife-cs16.service
+[Service]
+Type=simple
+User=cs16
+Group=cs16
+WorkingDirectory=/opt/winlife-cs16
+ExecStart=/opt/winlife-cs16/damage-publisher -rooms /opt/winlife-cs16/game/.rooms -public /opt/winlife-cs16/public
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/winlife-cs16/public/combat-reports-v1
+Environment=GOMEMLIMIT=80MiB
+MemoryMax=128M
+UMask=0022
+[Install]
+WantedBy=multi-user.target

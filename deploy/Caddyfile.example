@@ -1,0 +1,11 @@
+# Replace the hostname; use /cs/* + handle_path if mounting at /cs/.
+cs.example.com {
+    encode zstd gzip
+    header {
+        Cross-Origin-Opener-Policy same-origin
+        Cross-Origin-Embedder-Policy require-corp
+    }
+    @release path /release.json
+    header @release Cache-Control "no-store"
+    reverse_proxy 127.0.0.1:27016
+}

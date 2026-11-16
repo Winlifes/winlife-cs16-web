@@ -1,0 +1,36 @@
+{
+  "xash3d-arm64": {
+    "commit": "707596f4905689ec224e993fcaa4d4ad66aa67d6",
+    "origin": "https://github.com/FWGS/xash3d-fwgs.git"
+  },
+  "cs16-sdk": {
+    "commit": "f8ecf4962c1878d7d9ad0d329aa7e53fe0addcab",
+    "origin": "https://github.com/FWGS/cs16-client.git"
+  },
+  "cs16-sdk-20261113/3rdparty/yapb": {
+    "commit": "6ed2ef55eab321bdfe0cc995742903b952a95d15"
+  },
+  "cs16-sdk-20261113/3rdparty/ReGameDLL_CS": {
+    "commit": "29594522d2426af66cf18f9e5a0f4b3aee21bd95"
+  },
+  "recoveredWasm": [
+    {
+      "url": "https://x8bitrain.github.io/webXash/assets/client_emscripten_wasm32-D-JUZ5gM.wasm",
+      "file": "client_emscripten_wasm32-D-JUZ5gM.wasm",
+      "bytes": 489444,
+      "sha256": "3a8b26a14ce562ab3bcfbf2a8f57c2822ae04c2a134caedbb03355003ea5ecf7"
+    },
+    {
+      "url": "https://x8bitrain.github.io/webXash/assets/cs_emscripten_wasm32-CWCeX_GV.wasm",
+      "file": "cs_emscripten_wasm32-CWCeX_GV.wasm",
+      "bytes": 1323625,
+      "sha256": "9c838823ddec4f65986a0f8e715d7b22f01e2e9dc9de59fe03752bcdebdc0b97"
+    },
+    {
+      "url": "https://x8bitrain.github.io/webXash/assets/menu_emscripten_wasm32-CxBArjop.wasm",
+      "file": "menu_emscripten_wasm32-CxBArjop.wasm",
+      "bytes": 494161,
+      "sha256": "d5802742d32b9295efa7479114798c832248c758ee4474af0dafaa2773d7d086"
+    }
+  ]
+}

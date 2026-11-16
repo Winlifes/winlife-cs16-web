@@ -1,0 +1,23 @@
+{
+  "name": "winlife-cs16-web",
+  "version": "0.1.7",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --environment node",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "jszip": "3.10.1",
+    "pino": "9.9.0",
+    "xash3d-fwgs": "1.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.8.1",
+    "typescript": "5.9.3",
+    "vite": "7.1.11",
+    "vitest": "3.2.4"
+  }
+}

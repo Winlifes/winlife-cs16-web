@@ -1,0 +1,3 @@
+# Keep upstream patch/license bytes intact, including upstream whitespace.
+patches/*.patch -text -whitespace
+licenses/* -text -whitespace

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN" data-input-mode="menu"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Winlife · Counter-Strike 1.6</title></head>
+<body>
+  <main id="welcome">
+    <div class="main-menu">
+      <h1><img src="/ui/cs-logo.png" alt="Counter-Strike"><span>1.6</span></h1>
+      <div class="menu-caption">WINLIFE · 联机作战 <a href="https://game.winlife.fun/">返回游戏中心 ↗</a> <button type="button" data-open-release>更新日志 · <span data-client-version></span></button></div>
+      <p class="release-notice" data-update-notice hidden role="status"></p>
+      <section class="classic-panel lobby-panel">
+        <div class="lobby-heading"><div><span class="lobby-eyebrow">COUNTER-STRIKE / MULTIPLAYER</span><h2>联机大厅</h2></div><div class="nickname-field"><label for="nickname">玩家昵称</label><input id="nickname" required maxlength="24" autocomplete="nickname" placeholder="输入昵称，自动保存"></div></div>
+        <div class="server-row"><span class="status-dot"></span><span id="server-status">正在查询服务器…</span></div>
+        <p id="lobby-error" class="lobby-error" role="status"></p>
+        <div id="room-browser">
+          <div class="lobby-toolbar"><span>房间列表 <small>开局后也可加入</small></span><div><button id="refresh-rooms" type="button">刷新</button><button id="create-room" type="button" class="primary">＋ 创建房间</button></div></div>
+          <div class="room-table-head"><span>房间 / 地图</span><span>状态</span><span>人数</span><span></span></div>
+          <div id="rooms-list" aria-live="polite"><p class="panel-note">正在获取房间列表…</p></div>
+          <p class="lobby-footnote">加入等待中的房间，随房主一起进入战场；也可以直接加入正在进行的对局。</p>
+        </div>
+        <div id="room-view" hidden>
+          <div class="room-summary"><div><h3 id="room-title"></h3><p id="room-map"></p></div><span id="room-phase" class="room-phase"></span></div>
+          <div class="room-members-title">房间玩家</div><ul id="room-members"></ul>
+          <p id="room-note" class="panel-note"></p>
+          <div class="room-actions"><button id="start-room" class="primary" type="button">开始对局</button><button id="invite-room" type="button">复制房间链接</button><button id="leave-room" type="button">离开房间</button></div>
+          <section class="room-bots-section" aria-label="房间人机设置"><h3>人机设置</h3><div id="room-bots"></div></section>
+        </div>
+        <div id="loading" hidden aria-live="polite"><strong id="loading-text">准备加载…</strong><progress id="progress" max="1" value="0"></progress></div>
+      </section>
+      <details class="resource-panel"><summary>游戏资源</summary><p>首次下载约 193 MB，之后优先使用浏览器缓存。已有资源包也可直接导入。</p><button id="choose-assets" type="button">导入本地资源包</button><span id="resource-status">请选择当前版本的游戏资源包</span><input id="asset-file" type="file" accept=".zip" hidden></details>
+    </div>
+    <footer><span>W A S D 移动　鼠标射击　B 购买　R 换弹</span><span>Esc 游戏菜单　M 更换队伍　按住 Tab 查看双方战绩与延迟</span></footer>
+    <div class="build-label">WINLIFE / COUNTER-STRIKE 1.6</div>
+  </main>
+  <dialog id="create-dialog" class="classic-panel"><form id="create-form"><div class="panel-title">创建房间</div><p class="panel-note">选择地图与人数，开局后仍允许其他玩家加入。</p><label for="room-name">房间名称</label><input id="room-name" maxlength="32" required><label for="create-map">地图</label><select id="create-map"><option value="de_dust2">沙漠 II · de_dust2</option><option value="cs_assault">仓库突袭 · cs_assault</option><option value="cs_mansion">豪宅 · cs_mansion</option><option value="de_inferno">炼狱 · de_inferno</option><option value="cs_italy">意大利 · cs_italy</option></select><label for="create-capacity">房间人数上限</label><select id="create-capacity"><option value="2">2 人</option><option value="4">4 人</option><option value="8">8 人</option><option value="10" selected>10 人</option><option value="12">12 人</option><option value="16">16 人</option></select><p id="create-error" class="lobby-error" role="status"></p><div class="panel-actions"><button type="submit" class="primary">建立房间</button><button id="create-cancel" type="button">取消</button></div></form></dialog>
+  <section id="game" hidden>
+    <p class="release-game-notice release-notice" data-update-notice hidden role="status"></p>
+    <canvas id="canvas" width="1280" height="720" tabindex="0" aria-label="CS 1.6 游戏画面"></canvas>
+    <div id="crosshair-hud" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div id="game-chat" hidden aria-label="游戏公屏聊天"></div>
+    <div id="teammate-labels" aria-label="可见队友昵称"></div>
+    <div id="match-hud" hidden aria-label="对局比分"><div><span id="match-a">队伍 A · T</span><strong><b id="match-score-a">0</b><i>:</i><b id="match-score-b">0</b></strong><span id="match-b">CT · 队伍 B</span></div><small id="match-status">等待双方玩家</small></div>
+    <div id="performance-hud" hidden aria-label="本机帧率与游戏延迟"><span><b id="own-fps">—</b> FPS</span><span>延迟 <b id="own-ping">—</b> ms</span></div>
+    <aside id="damage-hud" hidden aria-label="回合伤害简报"><div id="damage-hud-title" class="damage-hud-title">本回合伤害简报</div><strong id="damage-hud-total"></strong><div id="damage-hud-weapons"></div><div id="damage-hud-targets"></div><small class="damage-hud-hint">完整明细：Esc → 伤害统计</small></aside>
+    <div id="hud-hint" hidden>Esc 游戏菜单　·　M 更换队伍　·　按住 Tab 查看战绩和延迟</div>
+    <div id="overlay" hidden>
+      <section id="team" class="classic-panel game-panel team-panel" hidden role="dialog" aria-modal="true" aria-labelledby="team-title">
+        <div class="panel-title"><img src="/ui/cs_logo.png" alt=""><h2 id="team-title">选择队伍</h2><span>SELECT TEAM</span></div>
+        <div class="team-options">
+          <button data-team="1" aria-label="加入恐怖分子" class="team-choice"><img src="/ui/terror.png" alt=""><span><strong><kbd>1</kbd> 恐怖分子</strong><small>TERRORIST FORCES</small><em>安放炸弹 / 阻止人质获救</em></span></button>
+          <button data-team="2" aria-label="加入反恐精英" class="team-choice"><img src="/ui/urban.png" alt=""><span><strong><kbd>2</kbd> 反恐精英</strong><small>COUNTER-TERRORISTS</small><em>拆除炸弹 / 营救人质</em></span></button>
+        </div>
+        <div class="team-secondary"><button data-team="5"><kbd>5</kbd> 自动分配</button><button data-team="6"><kbd>6</kbd> 旁观比赛</button></div>
+        <p id="team-status" class="panel-note" role="status">点击选择队伍，也可按 1、2、5、6。选队时鼠标保持可见。</p>
+        <button id="team-back" class="quiet" hidden>返回游戏菜单</button>
+      </section>
+      <section id="ready" class="classic-panel game-panel compact-panel" hidden role="dialog" aria-modal="true" aria-labelledby="ready-title">
+        <div class="panel-title"><h2 id="ready-title">准备就绪</h2><span>READY</span></div>
+        <p id="ready-status">已加入队伍。</p><p class="panel-note">点击进入战场后使用鼠标瞄准。Esc 释放鼠标并打开菜单；按住 Tab 查看双方战绩与每位玩家的延迟（毫秒）。右下角显示自己的 FPS 和游戏延迟。</p>
+        <div class="panel-actions"><button id="start-battle" class="primary">进入战场</button><button id="ready-team">重新选队</button></div>
+      </section>
+      <section id="pause" class="classic-panel game-panel compact-panel" hidden role="dialog" aria-modal="true" aria-labelledby="pause-title">
+        <div class="panel-title"><h2 id="pause-title">游戏菜单</h2><span>COUNTER-STRIKE</span></div>
+        <p id="live-status" class="panel-note">正在连接…</p>
+        <nav class="pause-actions"><button id="resume" class="primary">继续游戏</button><button id="scores-toggle">双方战绩与延迟</button><button id="damage-toggle" disabled>伤害统计 · 回合结束或死亡后查看</button><button id="team-toggle">更换队伍</button><button id="buy-menu">购买装备</button><button id="mouse-toggle">鼠标设置</button><button type="button" data-open-release>更新日志 · <span data-client-version></span></button><button id="bots-toggle">人机设置</button><button id="tools-toggle">换图与设置</button><button id="fullscreen">全屏显示</button><button id="leave">离开房间，返回大厅</button></nav>
+        <p id="input-status" class="panel-note" role="status">菜单已打开，鼠标可自由移动。</p>
+      </section>
+      <section id="shop" class="classic-panel game-panel shop-panel" hidden role="dialog" aria-modal="true" aria-labelledby="shop-title">
+        <div class="panel-title"><img src="/ui/cs_logo.png" alt=""><h2 id="shop-title">快捷购买</h2><span>COUNTER-STRIKE / LOADOUTS</span></div>
+        <div class="shop-meta"><div><strong id="shop-team">正在获取阵营…</strong><span id="shop-map"></span></div><div class="shop-balance"><small>当前资金</small><strong id="shop-money">—</strong></div></div>
+        <nav class="shop-tabs" aria-label="购买方式"><button id="shop-presets-tab" type="button" aria-pressed="true">推荐套装</button><button id="shop-items-tab" type="button" aria-pressed="false">单件快捷购买</button><button id="shop-original" type="button">原版商店 ↗</button></nav>
+        <div class="shop-body"><p id="shop-unavailable" class="panel-note" hidden>当前无法购买：请等待角色存活并加入 T 或 CT。</p><div id="shop-presets" class="loadout-grid"></div><div id="shop-items" hidden><h3 class="buy-group-title">常用武器</h3><div id="shop-weapon-items" class="buy-item-grid"></div><h3 class="buy-group-title">护甲与补给</h3><div id="shop-equipment-items" class="buy-item-grid"></div></div></div>
+        <div class="shop-footer"><p id="shop-status" role="status" aria-live="polite">点击单件可连续补齐；一键购买套装后直接返回战斗。</p><p class="shop-price-note">按列出顺序购买；资金不足时可能只买到部分装备。价格为新装备参考价，护甲补齐与弹药按实际扣费。</p><div><small>F1–F4 套装　数字 1–8 原版分类／弹药　B 返回</small><button id="shop-resume" type="button" class="primary">完成购买 · 返回战斗</button></div></div>
+      </section>
+      <section id="mouse" class="classic-panel game-panel compact-panel" hidden role="dialog" aria-modal="true" aria-labelledby="mouse-title"><div class="panel-title"><h2 id="mouse-title">鼠标设置</h2><span>MOUSE SETTINGS</span></div><p class="panel-note">数值越大，转向越快。调整后立即生效，并在当前浏览器自动保存。</p><div class="mouse-value">鼠标灵敏度 <strong id="mouse-sensitivity-current">3.0</strong></div><label class="mouse-range-label" for="mouse-sensitivity">拖动调整</label><input id="mouse-sensitivity" type="range" min="0.1" max="10" step="0.1" value="3" aria-label="鼠标灵敏度"><div class="mouse-range-scale"><span>慢 · 0.1</span><span>快 · 10.0</span></div><label for="mouse-sensitivity-value">精确数值</label><input id="mouse-sensitivity-value" type="number" min="0.1" max="10" step="0.1" value="3.0" inputmode="decimal" aria-label="鼠标灵敏度数值"><button id="mouse-reset" type="button">恢复默认（3.0）</button><p id="mouse-settings-status" class="panel-note" role="status" aria-live="polite"></p><div class="panel-actions"><button id="mouse-resume" class="primary" type="button">完成设置 · 返回战斗</button><button id="mouse-back" class="quiet" type="button">返回游戏菜单</button></div></section>
+      <section id="result" class="classic-panel game-panel result-panel" hidden role="dialog" aria-modal="true" aria-labelledby="result-title">
+        <div class="panel-title"><h2 id="result-title">对局结束</h2><span>MATCH RESULT</span></div>
+        <div class="result-head"><p>队伍 A</p><strong id="result-score">0 : 0</strong><p>队伍 B</p></div>
+        <p id="result-map" class="panel-note"></p><div id="result-scores"></div>
+        <p id="result-status" class="panel-note"></p><p id="result-error" class="error" role="status"></p>
+        <div class="panel-actions"><button id="result-continue" class="primary">继续新的一场</button><button id="result-damage">最后一回合伤害明细</button><button id="result-leave" class="quiet">退出房间</button></div>
+      </section>
+      <section id="damage" class="classic-panel game-panel damage-panel" hidden role="dialog" aria-modal="true" aria-labelledby="damage-title"><div class="panel-title"><h2 id="damage-title">伤害统计</h2><span>ROUND DAMAGE</span></div><p id="damage-summary" class="damage-summary">死亡或小局结束后显示造成和受到的伤害，可在下一回合回看。</p><div id="damage-content"></div><p class="panel-note damage-note">按玩家、武器、身体部位统计实际扣血。枪数为命中射击次数，匕首、手雷按次计；散弹的一枪可命中多个部位，各部位分别计数，伤害按命中权重分摊。爆炸记为全身。</p><div class="panel-actions"><button id="damage-resume" class="primary" type="button">返回战场</button><button id="damage-back" class="quiet" type="button">返回游戏菜单</button></div></section>
+      <section id="bots" class="classic-panel game-panel compact-panel" hidden role="dialog" aria-modal="true" aria-labelledby="bots-title"><div class="panel-title"><h2 id="bots-title">人机设置</h2><span>BOT SETTINGS</span></div><div id="game-bots"></div><button id="bots-back" class="quiet">返回游戏菜单</button></section>
+      <section id="tools" class="classic-panel game-panel tools-panel" hidden role="dialog" aria-modal="true" aria-labelledby="tools-title">
+        <div class="panel-title"><h2 id="tools-title">换图与设置</h2><span>GAME SETTINGS</span></div>
+        <p class="panel-note">在线玩家过半同意后换图，两次换图至少间隔 45 秒。</p>
+        <label for="map">地图</label><select id="map"><option value="de_dust2">沙漠 II · de_dust2</option><option value="cs_assault">仓库突袭 · cs_assault</option><option value="cs_mansion">豪宅 · cs_mansion</option><option value="de_inferno">炼狱 · de_inferno</option><option value="cs_italy">意大利 · cs_italy</option></select><button id="vote">投票换图</button><p id="vote-status" class="panel-note" role="status"></p>
+        <details><summary>游戏控制台</summary><form id="console-form"><input id="command" aria-label="客户端控制台命令" placeholder="输入客户端命令" autocomplete="off"><button>执行</button></form><pre id="client-log"></pre></details>
+        <button id="tools-back" class="quiet">返回游戏菜单</button>
+      </section>
+    </div>
+    <div id="native-menu-hint" hidden><span id="native-hint-text">选择装备后自动返回战斗</span><button id="native-quick-buy" hidden>推荐套装</button><button id="native-resume">返回战斗</button><button id="native-back">游戏菜单</button></div>
+    <div id="combat-scoreboard" hidden aria-label="双方战绩与延迟"><section class="classic-panel combat-score-panel"><div class="panel-title"><h2>双方战绩</h2><span>MATCH STATS</span></div><div id="combat-score-content"></div><p id="combat-score-note" class="panel-note"></p><button id="scores-back">返回游戏菜单</button></section></div>
+    <div id="scoreboard-hint" hidden><span>Ping (ms)：每位玩家的游戏延迟，单位毫秒</span></div>
+  </section>
+  <dialog id="release-dialog" class="classic-panel release-dialog" aria-labelledby="release-title"><div class="panel-title"><h2 id="release-title">更新日志</h2><span>WINLIFE / RELEASE NOTES</span></div><p id="release-summary" class="panel-note" role="status"></p><div id="release-content"></div><p class="panel-note"><a href="https://github.com/Winlifes/winlife-cs16-web" target="_blank" rel="noopener noreferrer">GitHub 开源代码 ↗</a></p><div class="panel-actions"><button id="release-reload" class="primary" hidden>刷新更新</button><button id="release-close" type="button">我知道了</button><button id="release-check" type="button" class="quiet">检查更新</button></div></dialog>
+  <script type="module" src="/src/main.ts"></script>
+</body></html>

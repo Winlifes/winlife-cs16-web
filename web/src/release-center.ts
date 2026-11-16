@@ -45,9 +45,11 @@ export class ReleaseCenter {
  }
  private render():void{
   const pending=this.state.pending,safe=this.safe(),latest=this.state.latest.current;
-  document.querySelectorAll<HTMLElement>("[data-update-notice]").forEach(n=>{n.hidden=!pending;n.textContent=`发现新版本 v${latest.version} · ${safe?"打开更新日志可刷新更新":"本场结束后可刷新更新"}`;});
+  const label=latest.version===this.state.loaded.current.version?"页面有更新":`发现新版本 v${latest.version}`;
+  el("release-title").textContent=pending?"发现更新":"更新日志";
+  document.querySelectorAll<HTMLElement>("[data-update-notice]").forEach(n=>{n.hidden=!pending;n.textContent=`${label} · ${safe?"打开更新日志可刷新更新":"本场结束后可刷新更新"}`;});
   document.querySelectorAll<HTMLElement>("[data-open-release]").forEach(n=>n.classList.toggle("has-update",pending));
-  el("release-summary").textContent=pending?`当前 Web v${this.state.loaded.current.version}，发现 v${latest.version}。${safe?"刷新后加载更新，昵称和资源缓存会保留。":"对局进行中，可先查看日志，结束后再刷新更新。"}`:`当前 Web v${this.state.loaded.current.version} · 已是最新版本`;
+  el("release-summary").textContent=pending?`当前 Web v${this.state.loaded.current.version}，${label}。${safe?"刷新后加载更新，昵称和资源缓存会保留。":"对局进行中，可先查看日志，结束后再刷新更新。"}`:`当前 Web v${this.state.loaded.current.version} · 已是最新版本`;
   const reload=el<HTMLButtonElement>("release-reload");reload.hidden=!pending;reload.disabled=!safe;
   el("release-close").textContent=pending?"稍后更新":"我知道了";
  }

@@ -81,7 +81,7 @@ diff --git a/regamedll/dlls/winlife_buy.cpp b/regamedll/dlls/winlife_buy.cpp
 new file mode 100644
 --- /dev/null
 +++ b/regamedll/dlls/winlife_buy.cpp
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,122 @@
 +#include "precompiled.h"
 +#include "winlife_buy.h"
 +#include <algorithm>
@@ -154,6 +154,17 @@ new file mode 100644
 +    if(l.grouping && gpGlobals->time-l.started>3){finish(player,l);}
 +    Receipt &r=l.grouping?l.pending:l.last;
 +    if(!l.grouping || !r.cost){r=Receipt{};r.first=prev;}
++    // A bundle cannot absorb damage, rewards, pickups or weapon use between
++    // its component purchases. Original guns/ammo may decrease when replaced.
++    if(r.cost && l.grouping) {
++        const State &last=r.last;
++        if(prev.user!=last.user || prev.round!=last.round || prev.team!=last.team || prev.money!=last.money || prev.health!=last.health || prev.armor!=last.armor || prev.kevlar!=last.kevlar || prev.kit!=last.kit || prev.nvg!=last.nvg)r.valid=false;
++        for(int i=0;i<MAX_AMMO_SLOTS;++i)if(prev.ammo[i]>last.ammo[i])r.valid=false;
++        for(const auto &w:prev.weapons) {
++            auto found=std::find_if(last.weapons.begin(),last.weapons.end(),[&](const Weapon &x){return x.index==w.index && x.serial==w.serial;});
++            if(found==last.weapons.end() || found->clip!=w.clip)r.valid=false;
++        }
++    }
 +    // Purchased weapons may never be refunded after transfer to the world.
 +    for(const auto &w:r.added)if(!contains(now,w))r.valid=false;
 +    for(const auto &w:now.weapons)if(!contains(prev,w))r.added.push_back(w);

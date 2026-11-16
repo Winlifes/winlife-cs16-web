@@ -34,7 +34,11 @@ sdk = clone('cs16-sdk', pins['cs16-sdk'])
 for name in ['ReGameDLL_CS', 'yapb']:
     actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=sdk / '3rdparty' / name, text=True).strip()
     assert actual == pins['cs16-sdk-20261113/3rdparty/' + name]['commit'], (name, actual)
-for repo, patch in [(engine, 'xash3d-winlife.patch'), (sdk / '3rdparty/ReGameDLL_CS', 'regamedll-combat.patch'), (sdk / '3rdparty/yapb', 'yapb-apple-arm64.patch')]:
+for repo, patch in [(engine, 'xash3d-winlife.patch'), (sdk / '3rdparty/ReGameDLL_CS', 'regamedll-combat.patch'), (sdk / '3rdparty/ReGameDLL_CS', 'regamedll-buy-undo.patch'), (sdk / '3rdparty/yapb', 'yapb-apple-arm64.patch')]:
+    # The newer patch adds context beside the combat includes. Check it first
+    # on prepared trees, so overlapping context does not reapply the old patch.
+    if patch == 'regamedll-combat.patch' and subprocess.run(['git', 'apply', '--reverse', '--check', str(ROOT / 'patches/regamedll-buy-undo.patch')], cwd=repo, capture_output=True).returncode == 0:
+        continue
     file = str(ROOT / 'patches' / patch)
     # Idempotent: do not overwrite a modified tree or apply a patch twice.
     reverse = subprocess.run(['git', 'apply', '--reverse', '--check', file], cwd=repo, capture_output=True)

@@ -1,4 +1,5 @@
 import {availableItems,buyItems,recommendedLoadouts,purchaseCommands,type BuyContext,type BuyItem} from "./buy-catalog";
+import {parseBuyUndo,undoMessage,type BuyUndoStatus} from "./buy-undo";
 const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const node=(tag:string,text="",className="")=>{const n=document.createElement(tag);n.textContent=text;n.className=className;return n;};
 const dollars=(amount:number)=>`$${amount.toLocaleString("en-US")}`;
@@ -9,12 +10,17 @@ export class QuickBuy {
     private timer?:ReturnType<typeof setInterval>;
     private pending=false;
     private generation=0;
+    private undo?:BuyUndoStatus;
+    private statusAt=0;
     constructor(private readonly context:()=>BuyContext,private readonly command:(text:string)=>void,private readonly resume:()=>void,private readonly nativeShop:()=>void){
         el("shop-presets-tab").onclick=()=>this.tab("presets");el("shop-items-tab").onclick=()=>this.tab("items");el("shop-original").onclick=nativeShop;
+        el("shop-undo").onclick=()=>this.undoPurchase();
     }
+    receiveLog(line:string):void {const status=parseBuyUndo(line);if(!status)return;this.undo=status;el("shop-undo-status").textContent=undoMessage(status);if(status.code==="ok"){el("shop-status").textContent=undoMessage(status);this.pending=false;}this.refresh();}
+    undoPurchase():void {if(this.pending||this.undo?.code!=="ready")return;this.undo=undefined;this.pending=true;el("shop-undo-status").textContent="正在确认撤回…";this.command("winlife_buy_undo");this.refresh();setTimeout(()=>{this.pending=false;this.refresh();},1500);}
     setVisible(visible:boolean):void{
         this.visible=visible;clearInterval(this.timer);
-        if(visible){this.generation++;this.pending=false;el("shop-status").textContent="点击单件可连续补齐；一键购买套装后直接返回战斗。";this.refresh();this.timer=setInterval(()=>this.refresh(),250);}
+        if(visible){this.generation++;this.pending=false;this.statusAt=0;el("shop-status").textContent="点击单件可连续补齐；一键购买套装后直接返回战斗。";this.refresh();this.timer=setInterval(()=>this.refresh(),250);}
         else this.generation++;
     }
     private tab(tab:"presets"|"items"):void{
@@ -39,6 +45,8 @@ export class QuickBuy {
         const valid=context.alive&&(context.team===1||context.team===2);
         for(const button of document.querySelectorAll<HTMLButtonElement>("#shop [data-buy],#shop [data-loadout]"))button.disabled=!valid||this.pending;
         el("shop-unavailable").hidden=valid;
+        el<HTMLButtonElement>("shop-undo").disabled=!valid||this.pending||this.undo?.code!=="ready";
+        if(Date.now()-this.statusAt>=1000){this.statusAt=Date.now();this.command("winlife_buy_status");}
     }
     private render(context:BuyContext):void {
         const items=availableItems(context),byId=new Map(items.map(item=>[item.id,item]));
@@ -57,7 +65,7 @@ export class QuickBuy {
     loadout(index:number):void {
         const context=this.context(),loadout=recommendedLoadouts(context)[index];if(!context.alive||this.pending||!loadout)return;
         const commands=purchaseCommands(loadout.items,context);if(!commands.length)return;
-        this.execute(commands);this.resume();
+        this.pending=true;this.refresh();this.execute(commands);this.resume();
     }
     single(id:string):void {
         const context=this.context(),commands=purchaseCommands([id],context);if(!context.alive||this.pending||!commands.length)return;
@@ -74,6 +82,6 @@ export class QuickBuy {
     }
     private execute(commands:string[]):void {
         // Only catalog aliases enter the native parser. Never interpolate user text.
-        this.command(`alias _winlife_quickbuy "${commands.join("; ")}"`);this.command("_winlife_quickbuy");
+        this.command(`alias _winlife_quickbuy "winlife_buy_begin; ${commands.join("; ")}; winlife_buy_end"`);this.command("_winlife_quickbuy");
     }
 }

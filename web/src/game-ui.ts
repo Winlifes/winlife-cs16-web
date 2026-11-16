@@ -6,7 +6,7 @@ import {classicBuyCategory,type BuyContext} from "./buy-catalog";
 
 type Panel="team"|"ready"|"pause"|"tools"|"bots"|"mouse"|"damage"|"shop"|"native"|"scores"|"unlocked"|"playing"|"result";
 const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
-const releasedCommands=["-attack","-attack2","-forward","-back","-moveleft","-moveright","-jump","-duck","-use","-showscores"];
+const releasedCommands=["-attack","-attack2","-reload","-forward","-back","-moveleft","-moveright","-jump","-duck","-use","-showscores"];
 
 export class GameUI {
     private active=false;
@@ -86,6 +86,7 @@ export class GameUI {
         this.show("team");this.updateTeamButtons();el("team-status").textContent="正在连接服务器，稍后即可选择队伍…";
     }
     private handleLog(line:string):void {
+        this.shop.receiveLog(line);
         this.teams.receiveLog(line);
         if(/Server #\d+/.test(line))this.resetConnection();
         if(line.includes("execing touch/chooseteam.cfg")){
@@ -199,8 +200,9 @@ export class GameUI {
             event.preventDefault();event.stopImmediatePropagation();this.pause();return;
         }
         if(this.panel==="shop"&&!editing){
+            if((event.ctrlKey||event.metaKey)&&key==="z"){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)this.shop.undoPurchase();return;}
             if(key==="b"||key==="0"){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)void this.enter();return;}
-            if(key==="a"||key==="r"){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat){this.command(key==="a"?"autobuy":"rebuy");void this.enter();}return;}
+            if(key==="a"||key==="r"){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat){this.command('alias _winlife_auto "winlife_buy_begin; '+(key==="a"?"autobuy":"rebuy")+'; winlife_buy_end"');this.command("_winlife_auto");void this.enter();}return;}
             if(/^f[1-4]$/.test(key)){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)this.shop.loadout(Number(key.slice(1))-1);return;}
             if(key==="6"||key==="7"){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)this.shop.single(key==="6"?"primammo":"secammo");return;}
             const category=classicBuyCategory(key);

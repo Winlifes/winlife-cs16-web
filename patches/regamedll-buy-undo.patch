@@ -1,0 +1,210 @@
+diff --git a/regamedll/CMakeLists.txt b/regamedll/CMakeLists.txt
+--- a/regamedll/CMakeLists.txt
++++ b/regamedll/CMakeLists.txt
+@@ -264,6 +264,7 @@
+ 	"dlls/vehicle.cpp"
+ 	"dlls/weapons.cpp"
+ 	"dlls/winlife_combat.cpp"
++	"dlls/winlife_buy.cpp"
+ 	"dlls/weapontype.cpp"
+ 	"dlls/world.cpp"
+ 	"dlls/API/CAPI_Impl.cpp"
+diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
+--- a/regamedll/dlls/client.cpp
++++ b/regamedll/dlls/client.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "winlife_buy.h"
+ 
+ int gmsgWeapPickup = 0;
+ int gmsgHudText = 0;
+@@ -1291,6 +1292,7 @@
+ 
+ void EXT_FUNC __API_HOOK(BuyItem)(CBasePlayer *pPlayer, int iSlot)
+ {
++	WinlifeBuyScope winlifeBuy(pPlayer);
+ 	int iItemPrice = 0;
+ 	const char *pszItem = nullptr;
+ 
+@@ -1629,6 +1631,7 @@
+ 		pPlayer->DropSecondary();
+ 	}
+ 
++	WinlifeBuyScope winlifeBuy(pPlayer);
+ 	auto pEntity = pPlayer->GiveNamedItem(info->entityName);
+ 	pPlayer->AddAccount(-info->cost, RT_PLAYER_BOUGHT_SOMETHING);
+ 
+@@ -2327,6 +2330,7 @@
+ 
+ bool EXT_FUNC __API_HOOK(BuyGunAmmo)(CBasePlayer *pPlayer, CBasePlayerItem *weapon, bool bBlinkMoney)
+ {
++	WinlifeBuyScope winlifeBuy(pPlayer);
+ 	if (!pPlayer->CanPlayerBuy(true))
+ 		return false;
+ 
+@@ -2653,6 +2657,7 @@
+ 
+ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *parg1)
+ {
++	if (WinlifeBuyCommand(CBasePlayer::Instance(pEntity), pcmd)) return;
+ 	const char *pstr = nullptr;
+ 	entvars_t *pev = &pEntity->v;
+ 	CBasePlayer *pPlayer = GetClassPtr<CCSPlayer>((CBasePlayer *)pev);
+diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
+--- a/regamedll/dlls/player.cpp
++++ b/regamedll/dlls/player.cpp
+@@ -28,6 +28,7 @@
+ 
+ #include "precompiled.h"
+ #include "winlife_combat.h"
++#include "winlife_buy.h"
+ 
+ BOOL gInitHUD = TRUE;
+ 
+@@ -5362,6 +5363,7 @@
+ 
+ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+ {
++	if (pev->button & (IN_ATTACK | IN_ATTACK2 | IN_RELOAD)) WinlifeBuyInvalidate(this);
+ 	// intermission or finale
+ 	if (g_pGameRules->IsGameOver())
+ 		goto pt_end;
+@@ -5784,6 +5786,7 @@
+ 
+ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+ {
++	WinlifeBuyInvalidate(this);
+ 	int i;
+ 
+ #ifdef REGAMEDLL_FIXES
+diff --git a/regamedll/dlls/winlife_buy.cpp b/regamedll/dlls/winlife_buy.cpp
+new file mode 100644
+--- /dev/null
++++ b/regamedll/dlls/winlife_buy.cpp
+@@ -0,0 +1,111 @@
++#include "precompiled.h"
++#include "winlife_buy.h"
++#include <algorithm>
++#include <array>
++#include <cstdio>
++#include <vector>
++
++namespace {
++struct Weapon {
++    int index, serial, id, clip;
++    bool operator==(const Weapon &w) const { return index==w.index && serial==w.serial && id==w.id && clip==w.clip; }
++};
++struct State {
++    int user, round, team, money, kevlar;
++    float health, armor;
++    bool kit, nvg, shield;
++    std::array<int,MAX_AMMO_SLOTS> ammo;
++    std::vector<Weapon> weapons;
++};
++struct Receipt {
++    State first, last;
++    std::array<int,MAX_AMMO_SLOTS> ammoAdded{};
++    std::vector<Weapon> added;
++    int cost=0, count=0;
++    bool valid=true;
++};
++struct Ledger { Receipt last, pending; bool grouping=false; float started=0; const char *reason="empty"; };
++std::array<Ledger,33> ledgers;
++Ledger *ledger(CBasePlayer *p) { const int i=p?p->entindex():0; return i>0 && i<33 && !p->IsBot()?&ledgers[i]:nullptr; }
++State state(CBasePlayer *p) {
++    State s{};s.user=GETPLAYERUSERID(p->edict());s.round=CSGameRules()->m_iTotalRoundsPlayed;s.team=p->m_iTeam;s.money=p->m_iAccount;
++    s.health=p->pev->health;s.armor=p->pev->armorvalue;s.kevlar=p->m_iKevlar;s.kit=p->m_bHasDefuser;s.nvg=p->m_bHasNightVision;s.shield=p->HasShield();
++    for(int i=0;i<MAX_AMMO_SLOTS;++i)s.ammo[i]=p->m_rgAmmo[i];
++    for(auto head:p->m_rgpPlayerItems)for(auto w=head;w;w=w->m_pNext)
++        s.weapons.push_back({w->entindex(),w->edict()->serialnumber,w->m_iId,w->IsWeapon()?static_cast<CBasePlayerWeapon*>(w)->m_iClip:-1});
++    std::sort(s.weapons.begin(),s.weapons.end(),[](const Weapon &a,const Weapon &b){return a.index<b.index;});return s;
++}
++bool same(const State &a,const State &b) {
++    return a.user==b.user && a.round==b.round && a.team==b.team && a.money==b.money && a.health==b.health && a.armor==b.armor && a.kevlar==b.kevlar && a.kit==b.kit && a.nvg==b.nvg && a.shield==b.shield && a.ammo==b.ammo && a.weapons==b.weapons;
++}
++bool contains(const State &s,const Weapon &w) { return std::any_of(s.weapons.begin(),s.weapons.end(),[&](const Weapon &x){return x.index==w.index && x.serial==w.serial;}); }
++void emit(CBasePlayer *p,const char *code,int cost=0,int count=0) {
++    char text[96];std::snprintf(text,sizeof text,"WINLIFE_BUY 1 %s %d %d\n",code,cost,count);ClientPrint(p->pev,HUD_PRINTCONSOLE,text);
++}
++const char *status(CBasePlayer *p,Ledger &l) {
++    if(l.grouping)return "busy";
++    if(!l.last.cost)return l.reason;
++    if(!p->CanPlayerBuy(false))return "blocked";
++    if(!l.last.valid || !same(state(p),l.last.last))return "changed";
++    return "ready";
++}
++void finish(CBasePlayer *p,Ledger &l) {
++    if(l.pending.cost){l.last=l.pending;l.reason="empty";}
++    l.pending=Receipt{};l.grouping=false;
++    const char *code=status(p,l);emit(p,code,l.last.cost,l.last.count);
++}
++}
++
++void WinlifeBuyInvalidate(CBasePlayer *p) {
++    auto l=ledger(p);if(!l)return;
++    if(l->last.cost || l->pending.cost)l->reason="used";
++    l->last=Receipt{};l->pending=Receipt{};l->grouping=false;
++}
++WinlifeBuyScope::WinlifeBuyScope(CBasePlayer *p):player(p),before(ledger(p)?new State(state(p)):nullptr) {}
++WinlifeBuyScope::~WinlifeBuyScope() {
++    if(!before)return;
++    const State prev=*static_cast<State*>(before);delete static_cast<State*>(before);
++    const State now=state(player);const int cost=prev.money-now.money;if(cost<=0)return;
++    auto &l=*ledger(player);
++    if(l.grouping && gpGlobals->time-l.started>3){finish(player,l);}
++    Receipt &r=l.grouping?l.pending:l.last;
++    if(!l.grouping || !r.cost){r=Receipt{};r.first=prev;}
++    // Purchased weapons may never be refunded after transfer to the world.
++    for(const auto &w:r.added)if(!contains(now,w))r.valid=false;
++    for(const auto &w:now.weapons)if(!contains(prev,w))r.added.push_back(w);
++    for(int i=0;i<MAX_AMMO_SLOTS;++i)r.ammoAdded[i]+=std::max(0,now.ammo[i]-prev.ammo[i]);
++    r.cost+=cost;r.count++;r.last=now;l.reason="empty";
++    if(!l.grouping)emit(player,status(player,l),r.cost,r.count);
++}
++bool WinlifeBuyCommand(CBasePlayer *p,const char *command) {
++    auto l=ledger(p);if(!l)return false;
++    if(FStrEq(command,"drop") || FStrEq(command,"nightvision") || FStrEq(command,"jointeam") || FStrEq(command,"chooseteam"))WinlifeBuyInvalidate(p);
++    if(FStrEq(command,"winlife_buy_begin")) {
++        if(l->grouping)finish(p,*l);
++        l->grouping=true;l->started=gpGlobals->time;l->pending=Receipt{};return true;
++    }
++    if(FStrEq(command,"winlife_buy_end")) {if(l->grouping)finish(p,*l);return true;}
++    if(!FStrEq(command,"winlife_buy_status") && !FStrEq(command,"winlife_buy_undo"))return false;
++    if(l->grouping && gpGlobals->time-l->started>3)finish(p,*l);
++    const char *code=status(p,*l);
++    if(FStrEq(command,"winlife_buy_status") || !FStrEq(code,"ready")) {emit(p,code,l->last.cost,l->last.count);return true;}
++    const Receipt receipt=l->last;
++    // Invalidate before mutations: a repeated request can never return money twice.
++    l->last=Receipt{};l->reason="empty";
++    for(const auto &w:receipt.added) {
++        auto item=static_cast<CBasePlayerItem*>(CBaseEntity::Instance(INDEXENT(w.index)));
++        if(item==p->m_pActiveItem && item->IsWeapon())static_cast<CBasePlayerWeapon*>(item)->RetireWeapon();
++        item->DestroyItem();
++    }
++    for(int i=0;i<MAX_AMMO_SLOTS;++i)p->m_rgAmmo[i]=std::max(0,receipt.last.ammo[i]-receipt.ammoAdded[i]);
++    p->pev->armorvalue=receipt.first.armor;p->m_iKevlar=static_cast<ArmorType>(receipt.first.kevlar);
++    if(!receipt.first.kit && p->m_bHasDefuser)p->RemoveDefuser();
++    p->m_bHasNightVision=receipt.first.nvg;
++    if(!receipt.first.shield && p->HasShield())p->RemoveShield();
++    p->SendItemStatus();
++    MESSAGE_BEGIN(MSG_ONE,gmsgArmorType,nullptr,p->pev);WRITE_BYTE(p->m_iKevlar==ARMOR_VESTHELM);MESSAGE_END();
++    p->m_iClientBattery=-1;p->AddAccount(receipt.cost,RT_NONE);p->BuildRebuyStruct();p->ResetMaxSpeed();
++    emit(p,"ok",receipt.cost,receipt.count);
++    UTIL_LogPrintf("WINLIFE_REFUND user=%d amount=%d count=%d\n",GETPLAYERUSERID(p->edict()),receipt.cost,receipt.count);
++    return true;
++}
+diff --git a/regamedll/dlls/winlife_buy.h b/regamedll/dlls/winlife_buy.h
+new file mode 100644
+--- /dev/null
++++ b/regamedll/dlls/winlife_buy.h
+@@ -0,0 +1,10 @@
++#pragma once
++// Only the native server records charges and grants refunds.
++struct WinlifeBuyScope {
++    CBasePlayer *player;
++    void *before;
++    explicit WinlifeBuyScope(CBasePlayer *p);
++    ~WinlifeBuyScope();
++};
++bool WinlifeBuyCommand(CBasePlayer *p, const char *command);
++void WinlifeBuyInvalidate(CBasePlayer *p);

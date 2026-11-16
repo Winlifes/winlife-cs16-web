@@ -2,7 +2,7 @@
 
 已验证的平台：macOS ARM64（Apple Silicon）和 Linux AMD64。需要 C/C++ 编译器、CMake、Ninja、Python 3、Git；Linux 另需基础开发工具。使用小于 4 GB 内存的主机时建议 `--jobs 1`。
 
-`native-sources.json` 固定 Xash3D、CS16Client 及 SDK 内的 ReGameDLL/YaPB 提交。`tools/prepare-native.py` 获取递归子模块，并应用三个补丁；若已有不兼容的修改，会停止，避免覆盖工作目录。源码和产物在被 Git 忽略的 `.native/`。
+`native-sources.json` 固定 Xash3D、CS16Client 及 SDK 内的 ReGameDLL/YaPB 提交。`tools/prepare-native.py` 获取递归子模块，并应用四个补丁；若已有不兼容的修改，会停止，避免覆盖工作目录。源码和产物在被 Git 忽略的 `.native/`。
 
 ```sh
 python3 tools/prepare-native.py
@@ -13,6 +13,7 @@ python3 tools/build-native.py --jobs 2
 
 - Xash3D：Darwin 专用服务器退出时保留映射，按 UDP 端点清理玩家，控制台专属结算暂停；暂停仅停止模拟，继续处理网络和管理命令；不累积暂停时间，不因真人全部断开而释放结算暂停。
 - ReGameDLL：只观察原生射击编号、TraceAttack 命中部位与 TakeDamage 的真实血量变化；不改变伤害或护甲公式。散弹的原生批量结算按命中权重分摊展示。
+- ReGameDLL 购买撤回：记录原生实际扣费及新增装备/弹药，校验库存、使用状态和原生购买条件后退款；单件与套装均只允许撤回一次。换枪掉落的原武器不复制或自动找回。替换 DLL 时应原子替换，已有房间需重建才能载入。
 - YaPB：Apple ARM64 的 libc++ / 部署目标参数。
 
 完整 SDK 内的素材与资源不属于本仓库发行内容；构建 SDK 可能按上游脚本获取人机导航数据。准备运行时请保留其许可证，不要把得到的资源提交到源码仓库。

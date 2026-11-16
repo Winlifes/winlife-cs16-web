@@ -92,6 +92,9 @@ func TestLobbyCapacityHostTransferAndLateJoin(t *testing.T) {
 	}
 	r.Phase = "playing"
 	m.mu.Unlock()
+	settlementWorker(m, host.Room.ID, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]string{"phase": "live"})
+	})
 	status, data = roomRequest(t, s, "/rooms/"+host.Room.ID+"/join", "POST", "", map[string]string{"nickname": "Late"})
 	if status != 200 {
 		t.Fatalf("in-progress join blocked: %s", data)

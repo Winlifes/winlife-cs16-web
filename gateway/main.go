@@ -47,7 +47,7 @@ type peer struct {
 	up, down, upBytes, downBytes, drops atomic.Uint64
 }
 
-const gatewayVersion = "0.1.6"
+const gatewayVersion = "0.1.7"
 
 var (
 	api           *webrtc.API

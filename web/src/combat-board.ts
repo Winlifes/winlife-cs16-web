@@ -73,7 +73,8 @@ export class CombatBoardClient {
   el("result-title").textContent=state.winner==="draw"?"双方平局":`队伍 ${state.winner} 获胜`;
   el("result-score").textContent=`${state.scoreA} : ${state.scoreB}`;
   el("result-map").textContent=`${this.board?.map??""} · 本场已结束`;
-  el("result-status").textContent=this.host()?"可继续新的一场，或退出房间。":"等待房主继续新的一场，也可以退出房间。";
+  el("result-status").textContent=this.host()?"可继续新的一场；房主退出将解散房间，所有人返回大厅。":"等待房主继续新的一场；房主退出将解散房间，你也可以自行退出。";
+  el("result-leave").textContent=this.host()?"退出并解散房间":"退出房间";
   const button=el("result-continue") as HTMLButtonElement;
   button.disabled=this.busy||!this.host();button.hidden=!this.host();
   (el("result-leave") as HTMLButtonElement).disabled=this.busy;

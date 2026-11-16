@@ -54,15 +54,16 @@ type roomView struct {
 }
 type gameRoom struct {
 	roomView
-	members     map[string]*roomMember
-	slot        int
-	workerPort  int
-	process     *roomProcess
-	launching   chan struct{}
-	emptySince  time.Time
-	botMu       sync.Mutex
-	botRevision uint64
-	botsDirty   bool
+	members      map[string]*roomMember
+	slot         int
+	workerPort   int
+	process      *roomProcess
+	launching    chan struct{}
+	emptySince   time.Time
+	botMu        sync.Mutex
+	settlementMu sync.Mutex
+	botRevision  uint64
+	botsDirty    bool
 }
 type roomProcess struct {
 	cmd  *exec.Cmd
@@ -255,6 +256,35 @@ func sameOrigin(r *http.Request) bool {
 	return e == nil && u.Host == r.Host
 }
 
+func (m *roomLobby) matchFinished(ctx context.Context, port int) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("http://127.0.0.1:%d/match", port), nil)
+	if err != nil {
+		return false, err
+	}
+	res, err := m.http.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer res.Body.Close()
+	var state struct {
+		Phase string `json:"phase"`
+	}
+	if res.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("match status: %d", res.StatusCode)
+	}
+	if err = json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&state); err != nil {
+		return false, err
+	}
+	switch state.Phase {
+	case "finished":
+		return true, nil
+	case "warmup", "starting", "live", "halftime":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid match phase: %q", state.Phase)
+	}
+}
+
 func (m *roomLobby) roomAPI(w http.ResponseWriter, r *http.Request) {
 	if !sameOrigin(r) {
 		apiError(w, 403, "请从本站进入联机大厅")
@@ -290,6 +320,19 @@ func (m *roomLobby) roomAPI(w http.ResponseWriter, r *http.Request) {
 		m.mu.Unlock()
 		apiError(w, 404, "房间已关闭，请返回大厅")
 		return
+	}
+	if action == "leave" || action == "rematch" {
+		// A host exit and a new-match request must observe one ordered decision.
+		// Never hold the lobby lock while waiting on another room action or HTTP.
+		m.mu.Unlock()
+		room.settlementMu.Lock()
+		defer room.settlementMu.Unlock()
+		m.mu.Lock()
+		if m.rooms[id] != room {
+			m.mu.Unlock()
+			apiError(w, 404, "房间已关闭，请返回大厅")
+			return
+		}
 	}
 	p := m.memberLocked(room, r)
 	if action == "bots" && r.Method == "POST" {
@@ -331,17 +374,36 @@ func (m *roomLobby) roomAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if action == "leave" && r.Method == "POST" && p != nil {
+		dissolve := false
+		if p.ID == room.HostID && room.Phase == "playing" && len(room.members) > 1 {
+			p.seen = time.Now()
+			port := room.workerPort
+			m.mu.Unlock()
+			finished, err := m.matchFinished(r.Context(), port)
+			m.mu.Lock()
+			if m.rooms[id] != room {
+				m.mu.Unlock()
+				apiError(w, 404, "房间已关闭，请返回大厅")
+				return
+			}
+			if err != nil {
+				m.mu.Unlock()
+				apiError(w, 503, "暂时无法确认对局状态，请重试退出")
+				return
+			}
+			dissolve = finished
+		}
 		m.removeLocked(room, p)
-		empty := len(room.members) == 0
-		if empty {
+		closed := dissolve || len(room.members) == 0
+		if closed {
 			delete(m.rooms, id)
 			room.Phase = "closed"
 		}
 		m.mu.Unlock()
-		if empty {
+		if closed {
 			m.destroy(room)
 		}
-		writeJSON(w, map[string]bool{"left": true})
+		writeJSON(w, map[string]bool{"left": true, "closed": closed})
 		return
 	}
 	if action == "start" && r.Method == "POST" && p != nil {

@@ -180,7 +180,7 @@ async function enterRoom(session:RoomSession) {
         xash.main();
         gameUI.begin();
         xash.Cmd_ExecuteString(`name "${name}"`);
-        for (const c of ["rate 100000", "cl_updaterate 60", "cl_cmdrate 60", "ex_interp 0.033", "fps_max 100", `hud_scale ${Math.min(window.devicePixelRatio || 1, 2)}`, "net_graph 0", "cl_showfps 0", "touch_enable 0", "voice_enable 0", "hud_fastswitch 1", "volume 0.5"]) xash.Cmd_ExecuteString(c);
+        for (const c of ["rate 100000", "cl_updaterate 60", "cl_cmdrate 60", "ex_interp 0.033", "fps_max 100", `hud_scale ${Math.min(window.devicePixelRatio || 1, 2)}`, "net_graph 0", "cl_showfps 0", "touch_enable 0", "voice_enable 0", "hud_fastswitch 1", "volume 0.5", "setinfo _vgui_menus 1"]) xash.Cmd_ExecuteString(c);
         telemetry.start();
         damageReports.start();
         combatBoard.start();

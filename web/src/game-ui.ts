@@ -26,7 +26,7 @@ export class GameUI {
     private readonly shop:QuickBuy;
     private originalBuy=false;
     constructor(private readonly command:(value:string)=>void,private readonly confirmWeapon:()=>void=()=>{},private readonly ownTeam:()=>number|undefined=()=>undefined,leave:()=>void=()=>window.location.reload(),readBuyState:()=>BuyContext|undefined=()=>undefined){
-        this.teams=new TeamSelection(command);
+        this.teams=new TeamSelection(command,()=>({team:this.ownTeam(),joined:this.hasTeam}));
         this.pointer=new PointerCapture(this.canvas,captured=>{
             console.info("[Input]",captured?"captured":"released",{focused:document.hasFocus(),panel:this.panel});
             if(captured){this.show("playing");el("hud-hint").hidden=false;clearTimeout(this.hintTimer);this.hintTimer=setTimeout(()=>el("hud-hint").hidden=true,3500);}
@@ -82,6 +82,7 @@ export class GameUI {
         queueMicrotask(()=>{if(this.active)this.handleLog(line.replace(/\x1b\[[0-9;]*m/g,""));});
     }
     private resetConnection():void {
+        this.teams.reset();
         this.generation++;this.hasTeam=false;this.currentTeam=undefined;this.teamReady=false;
         this.show("team");this.updateTeamButtons();el("team-status").textContent="正在连接服务器，稍后即可选择队伍…";
     }
@@ -172,12 +173,12 @@ export class GameUI {
         this.selecting=true;this.updateTeamButtons();const generation=this.generation;
         el("team-status").textContent="正在加入队伍…";
         try{
-            await this.teams.choose(team);
+            const selected=await this.teams.choose(team);
             if(generation!==this.generation)return;
             // Close client menu state as well as its touch drawing layer.
-            this.command("slot10");this.command("touch_removeall");this.command("touch_setclientonly 0");
-            this.hasTeam=true;this.currentTeam=team;
-            el("ready-status").textContent=team==="1"?"已加入恐怖分子。":team==="2"?"已加入反恐精英。":team==="6"?"已进入旁观模式。":"已自动分配队伍。";
+            this.command("slot10");this.command("client_buy_close");this.command("touch_removeall");this.command("touch_setclientonly 0");
+            this.hasTeam=true;this.currentTeam=selected;
+            el("ready-status").textContent=selected==="1"?"已加入恐怖分子。":selected==="2"?"已加入反恐精英。":selected==="6"?"已进入旁观模式。":"已自动分配队伍。";
             this.show("ready");
         } catch(error){if(generation===this.generation)el("team-status").textContent=error instanceof Error?error.message:String(error);}
         finally{this.selecting=false;this.updateTeamButtons();}
@@ -187,6 +188,9 @@ export class GameUI {
         if(!this.hasTeam){this.show("team");return;}
         this.closeNative();
         this.command("touch_setclientonly 0");
+        // Close the page panel even when the browser refuses pointer capture
+        // (for example immediately after Escape). A canvas click can retry.
+        this.show("unlocked");
         const buttons=["resume","start-battle","native-resume","shop-resume","mouse-resume","damage-resume"].map(id=>el<HTMLButtonElement>(id));
         buttons.forEach(button=>button.disabled=true);
         try{await this.pointer.enter();}finally{buttons.forEach(button=>button.disabled=false);}
@@ -197,7 +201,13 @@ export class GameUI {
         const key=event.key.toLowerCase();
         const editing=event.target instanceof Element&&!!event.target.closest("input,textarea,select");
         if(key==="escape"){
-            event.preventDefault();event.stopImmediatePropagation();this.pause();return;
+            event.preventDefault();event.stopImmediatePropagation();
+            if(this.isSettled){this.show("result");return;}
+            if(this.hasTeam&&this.panel!=="playing"&&this.panel!=="unlocked"&&!this.selecting){
+                if(this.panel==="team")this.command("slot10");
+                this.closeNative();this.command("touch_setclientonly 0");this.show("unlocked");
+            }else this.pause();
+            return;
         }
         if(this.panel==="shop"&&!editing){
             if((event.ctrlKey||event.metaKey)&&key==="z"){event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)this.shop.undoPurchase();return;}

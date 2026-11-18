@@ -143,9 +143,11 @@ export class GameUI {
         }
     }
     private closeNative():void {
-        if(this.panel!=="native")return;
+        if(this.panel!=="native"&&this.panel!=="shop")return;
+        this.nativeGeneration++;
+        this.buyMenu=undefined;
         this.show("ready");
-        this.command("_erase_frame");this.command("touch_removebutton _menu_*");this.command("touch_setclientonly 0");
+        this.command("_erase_frame");this.command("client_buy_close");this.command("touch_removebutton _menu_*");this.command("touch_setclientonly 0");
     }
     private openShop():void {
         this.show("shop");this.command("touch_removebutton _menu_*");this.command("touch_setclientonly 0");this.command("slot10");
@@ -202,6 +204,9 @@ export class GameUI {
         const editing=event.target instanceof Element&&!!event.target.closest("input,textarea,select");
         if(key==="escape"){
             event.preventDefault();event.stopImmediatePropagation();
+            // Holding Escape must dismiss a menu once, not reopen pause on
+            // the following auto-repeat events after that menu is hidden.
+            if(event.repeat)return;
             if(this.isSettled){this.show("result");return;}
             if(this.hasTeam&&this.panel!=="playing"&&this.panel!=="unlocked"&&!this.selecting){
                 if(this.panel==="team")this.command("slot10");

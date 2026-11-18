@@ -2,14 +2,14 @@ import {afterEach,expect,it,vi} from "vitest";
 import {GameUI} from "./game-ui";
 
 afterEach(()=>vi.unstubAllGlobals());
-function setup(panel:string,hasTeam=true,settled=false){
+function setup(panel:string,hasTeam=true,settled=false,repeat=false){
     vi.stubGlobal("document",{getElementById:()=>({open:false})});
     vi.stubGlobal("Element",class {});
     const ui=Object.assign(Object.create(GameUI.prototype),{
         active:true,panel,hasTeam,isSettled:settled,selecting:false,
         pause:vi.fn(),enter:vi.fn(),show:vi.fn(),command:vi.fn(),closeNative:vi.fn(),
     });
-    const event={key:"Escape",target:null,preventDefault:vi.fn(),stopImmediatePropagation:vi.fn()};
+    const event={key:"Escape",repeat,target:null,preventDefault:vi.fn(),stopImmediatePropagation:vi.fn()};
     ui.keydown(event);return {ui,event};
 }
 it("closes settings and the pause menu on Escape after joining a team",()=>{
@@ -20,6 +20,25 @@ it("closes settings and the pause menu on Escape after joining a team",()=>{
         expect(ui.enter).not.toHaveBeenCalled();
         expect(event.preventDefault).toHaveBeenCalled();
         if(panel==="team")expect(ui.command).toHaveBeenCalledWith("slot10");
+    }
+});
+it("does not reopen pause when Escape repeats after closing the shop",()=>{
+    for(const panel of ["shop","native","unlocked","pause","playing"]){
+        const {ui,event}=setup(panel,true,false,true);
+        expect(ui.pause).not.toHaveBeenCalled();expect(ui.show).not.toHaveBeenCalled();expect(ui.closeNative).not.toHaveBeenCalled();
+        expect(event.preventDefault).toHaveBeenCalled();expect(event.stopImmediatePropagation).toHaveBeenCalled();
+    }
+});
+it("clears the native purchase layer and invalidates delayed close callbacks without opening settings",()=>{
+    for(const panel of ["shop","native"]){
+        const {ui,event}=setup(panel);
+        ui.pause.mockClear();ui.show.mockClear();ui.command.mockClear();ui.closeNative=GameUI.prototype["closeNative"];
+        ui.panel=panel;ui.nativeGeneration=4;ui.buyMenu="buy_rifle_t";
+        ui.keydown(event);
+        expect(ui.nativeGeneration).toBe(5);expect(ui.buyMenu).toBeUndefined();
+        expect(ui.command).toHaveBeenCalledWith("client_buy_close");
+        expect(ui.command).toHaveBeenCalledWith("touch_removebutton _menu_*");
+        expect(ui.show).toHaveBeenLastCalledWith("unlocked");expect(ui.pause).not.toHaveBeenCalled();
     }
 });
 it("still opens the pause menu during combat and never escapes a required team choice or settlement",()=>{

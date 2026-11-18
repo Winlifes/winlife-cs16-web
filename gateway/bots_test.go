@@ -92,20 +92,22 @@ func TestBotConfigIsPrivatePersistsAndRetriesWorkerFailure(t *testing.T) {
 	host := createTestRoom(t, s, "Host", 4)
 	var unavailable atomic.Bool
 	var commands atomic.Int32
+	var controller *botController
 	worker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/console" || r.Header.Get("X-CS16-Admin") != m.token {
+		if r.URL.Path != "/bots" || r.Header.Get("X-CS16-Admin") != m.token {
 			t.Error("invalid private worker routing")
 		}
 		if unavailable.Load() {
 			w.WriteHeader(503)
 			return
 		}
-		var body struct{ Command string }
+		var body botWorkerUpdate
 		json.NewDecoder(r.Body).Decode(&body)
-		if body.Command != "exec winlife_bots.cfg" {
-			t.Errorf("unexpected command: %q", body.Command)
+		if err := controller.apply(body); err != nil {
+			t.Error(err)
+			w.WriteHeader(503)
+			return
 		}
-		commands.Add(1)
 		writeJSON(w, map[string]bool{"accepted": true})
 	}))
 	defer worker.Close()
@@ -117,6 +119,13 @@ func TestBotConfigIsPrivatePersistsAndRetriesWorkerFailure(t *testing.T) {
 	m.mu.Unlock()
 	game := filepath.Join(m.roomDir(room), "game")
 	os.MkdirAll(filepath.Join(game, "cstrike"), 0700)
+	controller = newBotController(game, func(command string) error {
+		if command != "exec winlife_bots.cfg" {
+			t.Errorf("unexpected command: %q", command)
+		}
+		commands.Add(1)
+		return nil
+	})
 	route := "/rooms/" + host.Room.ID + "/bots"
 	status, data := roomRequest(t, s, route, "POST", host.Token, botSettings{Count: 3, Difficulty: 3})
 	if status != 200 || commands.Load() != 1 {

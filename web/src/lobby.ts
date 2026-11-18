@@ -1,4 +1,4 @@
-import {BotControls,botDifficulties,type BotSettings} from "./bot-controls";
+import {BotControls,botDifficulties,botTeamSummary,type BotSettings} from "./bot-controls";
 export interface RoomMember {id:string;nickname:string;joinedAt:string}
 export interface Room {id:string;name:string;map:string;maxPlayers:number;phase:"waiting"|"starting"|"playing"|"failed";hostId:string;members:RoomMember[];error?:string;bots?:BotSettings;botCount?:number;botsError?:string}
 export interface RoomSession {room:Room;memberId:string;token:string}
@@ -101,7 +101,7 @@ export class Lobby {
         el("room-phase").textContent=roomPhase(room);
         const members=el("room-members");members.replaceChildren();
         for(const member of room.members){const row=text("li","","room-member");row.append(text("span",member.nickname),text("small",member.id===room.hostId?"房主":member.id===this.session?.memberId?"你":"玩家"));members.append(row);}
-        if(room.bots?.count){const row=text("li","","room-member room-bot-member");row.append(text("span",`人机 × ${room.bots.count}`),text("small",`${botDifficulties[room.bots.difficulty]} · 自动分配阵营`));members.append(row);}
+        if(room.bots?.count){const row=text("li","","room-member room-bot-member");row.append(text("span",`人机 × ${room.bots.count}`),text("small",`${botDifficulties[room.bots.difficulty]} · ${botTeamSummary(room.bots)}`));members.append(row);}
         const host=room.hostId===this.session?.memberId;
         for(const controls of this.botControls)controls.update(room,host);
         const button=el<HTMLButtonElement>("start-room");button.hidden=!host||room.phase==="playing";button.disabled=room.phase==="starting";button.textContent=room.phase==="starting"?"正在准备服务端…":room.phase==="failed"?"重新开局":"开始对局";

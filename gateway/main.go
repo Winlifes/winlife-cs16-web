@@ -47,7 +47,7 @@ type peer struct {
 	up, down, upBytes, downBytes, drops atomic.Uint64
 }
 
-const gatewayVersion = "0.1.7"
+const gatewayVersion = "0.1.8"
 
 var (
 	api           *webrtc.API
@@ -597,7 +597,7 @@ func health(w http.ResponseWriter, r *http.Request) {
 		list = append(list, map[string]any{"id": p.ID, "nickname": p.Nickname, "state": p.State, "protocol": p.Protocol, "connectedAt": p.ConnectedAt, "packetsUp": p.up.Load(), "packetsDown": p.down.Load(), "bytesUp": p.upBytes.Load(), "bytesDown": p.downBytes.Load(), "droppedDown": p.drops.Load()})
 	}
 	peersMu.RUnlock()
-	writeJSON(w, map[string]any{"ok": true, "serverVersion": gatewayVersion + "-" + runtime.GOOS + "-" + runtime.GOARCH, "uptimeSeconds": int(time.Since(started).Seconds()), "engine": queryInfo(), "peers": list, "defaultMaxPlayers": 16, "transport": "WebRTC / WebSocket -> native UDP"})
+	writeJSON(w, map[string]any{"ok": true, "serverVersion": gatewayVersion + "-" + runtime.GOOS + "-" + runtime.GOARCH, "uptimeSeconds": int(time.Since(started).Seconds()), "engine": queryInfo(), "peers": list, "botSettings": workerBots.snapshot(), "defaultMaxPlayers": 16, "transport": "WebRTC / WebSocket -> native UDP"})
 }
 func admin(w http.ResponseWriter, r *http.Request) {
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CS16-Admin")), []byte(adminToken)) != 1 {
@@ -616,6 +616,26 @@ func admin(w http.ResponseWriter, r *http.Request) {
 		}
 		matchCommands(commands)
 		writeJSON(w, matches.snapshot())
+		return
+	}
+	if r.URL.Path == "/bots" {
+		if r.Method != "POST" {
+			apiError(w, 405, "POST required")
+			return
+		}
+		var update botWorkerUpdate
+		if !decodeBody(w, r, &update) {
+			return
+		}
+		if !update.Settings.valid() {
+			apiError(w, 400, "invalid bot settings")
+			return
+		}
+		if err := workerBots.apply(update); err != nil {
+			apiError(w, 503, err.Error())
+			return
+		}
+		writeJSON(w, workerBots.snapshot())
 		return
 	}
 	if r.URL.Path == "/logs" {

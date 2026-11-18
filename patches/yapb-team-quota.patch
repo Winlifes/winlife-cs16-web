@@ -1,0 +1,109 @@
+diff --git a/inc/cvars.h b/inc/cvars.h
+index 6670821..8aa6698 100644
+--- a/inc/cvars.h
++++ b/inc/cvars.h
+@@ -516,6 +516,29 @@ inline ConVar cv_quota {
+   }
+ };
+ 
++// Negative values preserve YaPB's standard automatic team assignment.
++inline ConVar cv_winlife_quota_t {
++  {
++    .name = "winlife_quota_t",
++    .value = "-1",
++    .info = "Room host's target number of Terrorist bots (-1 for automatic teams).",
++    .bounded = true,
++    .min = -1.0f,
++    .max = static_cast<float> (kGameMaxPlayers),
++  }
++};
++
++inline ConVar cv_winlife_quota_ct {
++  {
++    .name = "winlife_quota_ct",
++    .value = "-1",
++    .info = "Room host's target number of CT bots (-1 for automatic teams).",
++    .bounded = true,
++    .min = -1.0f,
++    .max = static_cast<float> (kGameMaxPlayers),
++  }
++};
++
+ inline ConVar cv_quota_mode {
+   {
+     .name = "quota_mode",
+diff --git a/src/manager.cpp b/src/manager.cpp
+index 6f952b4..3beeb65 100644
+--- a/src/manager.cpp
++++ b/src/manager.cpp
+@@ -406,7 +406,9 @@ void Manager::QueueBotRequest (Request &&request) {
+     if (cv_save_bots.As<int> () == 2) {
+       request.difficulty = saved.difficulty;
+       request.personality = saved.personality;
+-      request.team = saved.team;
++      if (request.team == Team::Invalid) {
++        request.team = saved.team;
++      }
+       request.skin = saved.skin;
+       request.diff_locked = saved.diff_locked;
+     }
+@@ -513,6 +515,12 @@ void Manager::MaintainQuota () {
+     return;
+   }
+   int desired_bot_count = cv_quota.As<int> ();
++  const bool split_teams = cv_winlife_quota_t.As<int> () >= 0 && cv_winlife_quota_ct.As<int> () >= 0;
++  int target_t = cv_winlife_quota_t.As<int> ();
++  int target_ct = cv_winlife_quota_ct.As<int> ();
++  if (split_teams) {
++    desired_bot_count = target_t + target_ct;
++  }
+ 
+   // only assign if out of range
+   if (desired_bot_count < 0 || desired_bot_count > max_clients) {
+@@ -525,10 +533,10 @@ void Manager::MaintainQuota () {
+     return;
+   }
+ 
+-  if (cv_quota_mode.As<ystl::StringRef> () == "fill") {
++  if (!split_teams && cv_quota_mode.As<ystl::StringRef> () == "fill") {
+     desired_bot_count = ystl::max (0, desired_bot_count - human_players_in_game);
+   }
+-  else if (cv_quota_mode.As<ystl::StringRef> () == "match") {
++  else if (!split_teams && cv_quota_mode.As<ystl::StringRef> () == "match") {
+     const int detect_quota_match = cv_quota_match.As<int> () == 0 ? cv_quota.As<int> () : cv_quota_match.As<int> ();
+ 
+     desired_bot_count = ystl::max (0, detect_quota_match * human_players_in_game);
+@@ -566,6 +574,33 @@ void Manager::MaintainQuota () {
+   // sent message only to console from here
+   ctrl.SetFromConsole (true);
+ 
++  if (split_teams) {
++    // Respect human admission and spectator reservations without changing the
++    // host's persistent targets. Pending joins count on their requested side.
++    desired_bot_count = ystl::max (0, desired_bot_count);
++    while (target_t + target_ct > desired_bot_count) {
++      if (target_t > target_ct) { --target_t; }
++      else { --target_ct; }
++    }
++    int actual_t = 0, actual_ct = 0;
++    for (auto &bot : bots_) {
++      auto team = game.GetRealPlayerTeam (bot.Ent ());
++      if (team != Team::Terrorist && team != Team::CT) {
++        team = util.ConvertFromCsTeam (bot.wanted_team_);
++      }
++      if (team == Team::Terrorist) { ++actual_t; }
++      else if (team == Team::CT) { ++actual_ct; }
++    }
++    if (actual_t > target_t) { KickRandom (false, Team::Terrorist); }
++    else if (actual_ct > target_ct) { KickRandom (false, Team::CT); }
++    else if (add_requests_.empty () && bots_in_game < desired_bot_count && bots_in_game < max_spawn_count) {
++      const auto team = actual_t < target_t ? Team::Terrorist : Team::CT;
++      Addbot ("", Difficulty::Invalid, Personality::Invalid, team, Skin::Random, false);
++    }
++    quota_maintain_timer_.start (0.4f);
++    return;
++  }
++
+   // add bots if necessary
+   if (desired_bot_count > bots_in_game && bots_in_game < max_spawn_count) {
+     CreateRandom ();

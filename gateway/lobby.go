@@ -729,7 +729,8 @@ func (m *roomLobby) refreshMaps() {
 			continue
 		}
 		var state struct {
-			Engine struct {
+			BotSettings *botWorkerUpdate `json:"botSettings"`
+			Engine      struct {
 				Map   string `json:"map"`
 				Bots  int    `json:"bots"`
 				Ready bool   `json:"ready"`
@@ -741,6 +742,9 @@ func (m *roomLobby) refreshMaps() {
 			m.mu.Lock()
 			if m.rooms[target.room.ID] == target.room && target.room.Phase == "playing" {
 				target.room.Map = state.Engine.Map
+				if state.BotSettings != nil && !target.room.botsDirty && state.BotSettings.Revision == target.room.botRevision && state.BotSettings.Settings.valid() {
+					target.room.Bots = state.BotSettings.Settings
+				}
 				if state.Engine.Ready {
 					target.room.BotCount = state.Engine.Bots
 				}

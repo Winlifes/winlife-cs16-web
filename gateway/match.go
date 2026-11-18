@@ -59,7 +59,13 @@ func (m *matchController) snapshot() matchView { m.mu.Lock(); defer m.mu.Unlock(
 
 func matchCommands(commands []string) {
 	for _, command := range commands {
-		if err := sendConsole(command); err != nil {
+		var err error
+		if command == "swapteams 1" {
+			err = workerBots.swapTeams()
+		} else {
+			err = sendConsole(command)
+		}
+		if err != nil {
 			log.Printf("match command %s failed: %v", command, err)
 		}
 	}

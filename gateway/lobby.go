@@ -91,7 +91,7 @@ type roomLobby struct {
 	mu                               sync.Mutex
 	rooms                            map[string]*gameRoom
 	maps                             []mapOption
-	party                            bool
+	party, individual                bool
 	slots                            map[int]bool
 	maxRooms                         int
 	root, gameDir, executable, token string
@@ -234,6 +234,10 @@ func (m *roomLobby) roomsAPI(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, "该模式需要新版游戏服务端，人数上限为 10 人")
 		return
 	}
+	if b.Mode == individualMode && !m.individual {
+		apiError(w, 400, "个人竞技需要支持自由混战的服务端")
+		return
+	}
 	if b.Mode == duelMode {
 		b.MaxPlayers = 2
 	}
@@ -290,7 +294,7 @@ func (m *roomLobby) matchFinished(ctx context.Context, port int) (bool, error) {
 	if res.StatusCode != http.StatusOK {
 		return false, fmt.Errorf("match status: %d", res.StatusCode)
 	}
-	if err = json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&state); err != nil {
+	if err = json.NewDecoder(io.LimitReader(res.Body, 64<<10)).Decode(&state); err != nil {
 		return false, err
 	}
 	switch state.Phase {
@@ -805,7 +809,7 @@ func (m *roomLobby) handler() http.Handler {
 	mux.HandleFunc("/rooms", m.roomsAPI)
 	mux.HandleFunc("/rooms/", m.roomAPI)
 	mux.HandleFunc("/client-config", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"transport": env("CS16_CLIENT_TRANSPORT", "webrtc"), "lobby": true, "maps": m.maps, "modes": installedModes(m.maps, m.party)})
+		writeJSON(w, map[string]any{"transport": env("CS16_CLIENT_TRANSPORT", "webrtc"), "lobby": true, "maps": m.maps, "modes": installedModes(m.maps, m.party, m.individual)})
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()
@@ -867,7 +871,7 @@ func runLobby() {
 	}
 	m := &roomLobby{rooms: map[string]*gameRoom{}, slots: map[int]bool{}, maxRooms: max, root: root, gameDir: game, executable: executable, token: token, http: &http.Client{Timeout: time.Second}}
 	m.maps = installedMaps(game, env("CS16_PUBLIC", "./public"))
-	m.party = supportsPartyModes(game)
+	m.party, m.individual = nativeGameModes(game)
 	m.spawn = m.spawnRoom
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()

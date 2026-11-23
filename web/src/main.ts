@@ -64,7 +64,7 @@ async function refreshHealth() {
 }
 void refreshHealth();
 setInterval(() => void refreshHealth(), 3000);
-setInterval(()=>{if(joined&&roomSession)void fetch(roomPath("match"),{cache:"no-store"}).then(r=>r.ok?r.json():undefined).then(state=>{if(state){matchPhase=state.phase;gameUI.battlePhase(state.phase);renderMatch(state,telemetry.team());combatBoard.match(state);releases.contextChanged();}}).catch(()=>{});},1000);
+setInterval(()=>{if(joined&&roomSession)void fetch(roomPath("match"),{cache:"no-store"}).then(r=>r.ok?r.json():undefined).then(state=>{if(state){matchPhase=state.phase;gameUI.battlePhase(state.phase);renderMatch(state,telemetry.team(),telemetry.identity()?.name);combatBoard.match(state);releases.contextChanged();}}).catch(()=>{});},1000);
 
 interface AssetsManifest {
     browserArchive:{sha256:string;url?:string};
@@ -150,7 +150,7 @@ async function enterRoom(session:RoomSession) {
                 menu: wasm("menu_emscripten_wasm32.wasm"), server: wasm("cs_emscripten_wasm32.wasm"),
                 client: wasm("client_emscripten_wasm32.wasm"), render: {gl4es: wasm("libref_webgl2.wasm")},
             },
-            module: {print, printErr: print,...{winlifeScoreboardDamage:(name:string)=>combatBoard.damage(name),winlifeOnHUD:renderTeammates,winlifeOnCrosshair:renderCrosshair,winlifeOnChat:renderChat}},
+            module: {print, printErr: print,...{winlifeScoreboardDamage:(name:string)=>combatBoard.damage(name),winlifeOnHUD:session.room.mode==="freeforall"?undefined:renderTeammates,winlifeOnCrosshair:renderCrosshair,winlifeOnChat:renderChat}},
         });
         xash.onConnected = () => {rtcReady = true; telemetry.connected(true); damageReports.connected(true); mouseSettings.waiting(); gameUI.reconnecting(); xash?.sendEvent("winlife:hello",name); void refreshHealth();};
         xash.onDisconnected = () => {rtcReady = false; renderCrosshair(undefined); telemetry.connected(false); damageReports.connected(false); mouseSettings.waiting(); el("live-status").textContent = "连接中断，正在自动重连…";};

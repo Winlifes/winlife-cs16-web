@@ -47,7 +47,7 @@ func TestHideAwardsPointsToTheSameGroupAfterRolesSwap(t *testing.T) {
 
 func TestPartyModesNeedNativeSupport(t *testing.T) {
 	for _, supported := range []bool{false, true} {
-		modes := installedModes(mapCatalog, supported)
+		modes := installedModes(mapCatalog, supported, false)
 		if slices.ContainsFunc(modes, func(mode modeOption) bool { return mode.ID == infectionMode }) != supported ||
 			slices.ContainsFunc(modes, func(mode modeOption) bool { return mode.ID == hideMode }) != supported {
 			t.Fatal(modes, supported)

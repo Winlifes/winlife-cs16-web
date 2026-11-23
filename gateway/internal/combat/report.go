@@ -14,6 +14,7 @@ import (
 )
 
 const actor = `"([^"\r\n]*)<([0-9]+)><([^<>"]*)><([^<>"]*)>"`
+const FreeForAllMode = "freeforall"
 
 var (
 	colors      = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -27,33 +28,61 @@ var (
 	loadingMap  = regexp.MustCompile(`^Loading map "([a-zA-Z0-9_]+)"`)
 )
 
+type LogPlayer struct {
+	ID   int
+	Name string
+	Team int
+}
+
+func (p LogPlayer) Playing() bool { return p.Team == 1 || p.Team == 2 }
+
+func logPlayer(match []string) LogPlayer {
+	return LogPlayer{ID: number(match[1]), Name: normalizeName(match[0]), Team: team(match[3])}
+}
+
+// PlayerKill extracts two distinct, participating players from a native kill.
+func PlayerKill(event string) (LogPlayer, LogPlayer, bool) {
+	match := killed.FindStringSubmatch(event)
+	if match == nil {
+		return LogPlayer{}, LogPlayer{}, false
+	}
+	killer, victim := logPlayer(match[1:5]), logPlayer(match[5:9])
+	return killer, victim, killer.ID > 0 && victim.ID > 0 && killer.ID != victim.ID && killer.Playing() && victim.Playing()
+}
+
 // EnemyKillTeam returns the killer's playing team for a native enemy kill.
 func EnemyKillTeam(event string) int {
-	match := killed.FindStringSubmatch(event)
-	if match == nil || match[2] == match[6] {
-		return 0
-	}
-	killer, victim := team(match[4]), team(match[8])
-	if (killer == 1 && victim == 2) || (killer == 2 && victim == 1) {
-		return killer
+	if killer, victim, ok := PlayerKill(event); ok && killer.Team != victim.Team {
+		return killer.Team
 	}
 	return 0
 }
 
+func SuicidePlayer(event string) (LogPlayer, bool) {
+	if match := suicide.FindStringSubmatch(event); match != nil {
+		player := logPlayer(match[1:5])
+		return player, player.ID > 0 && player.Playing()
+	}
+	return LogPlayer{}, false
+}
+
 // PlayingTeamChange identifies authoritative assignments and disconnects.
 // Team zero removes a player from the playing roster.
-func PlayingTeamChange(event string) (string, int, bool) {
-	player := playerEvent.FindStringSubmatch(event)
-	if player == nil {
-		return "", 0, false
+func PlayingTeamChange(event string) (LogPlayer, bool) {
+	match := playerEvent.FindStringSubmatch(event)
+	if match == nil {
+		return LogPlayer{}, false
 	}
-	if move := joinedTeam.FindStringSubmatch(player[5]); move != nil {
-		return player[2], team(move[1]), true
+	player := logPlayer(match[1:5])
+	if move := joinedTeam.FindStringSubmatch(match[5]); move != nil {
+		player.Team = team(move[1])
+		return player, player.ID > 0
 	}
-	if player[5] == "disconnected" {
-		return player[2], 0, true
+	if match[5] == "disconnected" {
+		player.Team = 0
+		return player, player.ID > 0
 	}
-	return "", 0, false
+	return LogPlayer{}, false
 }
 
 type Counts struct {
@@ -170,7 +199,7 @@ type Tracker struct {
 	epoch                   string
 	round, deaths, legacy   uint64
 	mapName, matchID, phase string
-	ended, rich             bool
+	ended, rich, individual bool
 }
 
 func NewTracker() *Tracker {
@@ -319,7 +348,7 @@ func (t *Tracker) damage(e damageEvent) {
 	shot := t.epoch + ":" + e.Shot
 	addEvent(a.targets, e.Victim, v.name, weapon, shot, count, parts)
 	addEvent(v.attackers, e.Attacker, a.name, weapon, shot, count, parts)
-	if a.team != v.team {
+	if t.individual || a.team != v.team {
 		a.damage += e.Damage
 	}
 }
@@ -329,6 +358,7 @@ func (t *Tracker) Consume(line string) {
 		var s struct {
 			ID    string `json:"id"`
 			Phase string `json:"phase"`
+			Mode  string `json:"mode"`
 		}
 		if json.Unmarshal([]byte(m[1]), &s) == nil && s.ID != "" {
 			if t.matchID != s.ID {
@@ -352,6 +382,7 @@ func (t *Tracker) Consume(line string) {
 				t.matchID = s.ID
 			}
 			t.phase = s.Phase
+			t.individual = s.Mode == FreeForAllMode
 			if s.Phase == "finished" {
 				t.ended = true
 				for _, p := range t.players {
@@ -412,7 +443,7 @@ func (t *Tracker) Consume(line string) {
 		a, v := t.player(m[1], m[2]), t.player(m[5], m[6])
 		if a != nil {
 			a.team = team(m[4])
-			if m[2] != m[6] && m[4] != m[8] {
+			if m[2] != m[6] && (t.individual || m[4] != m[8]) {
 				a.kills++
 			}
 		}
@@ -535,7 +566,7 @@ func (t *Tracker) Scoreboard() Board {
 		if t.phase == "finished" && p.finalTeam > 0 {
 			squad = p.finalTeam
 		}
-		if i, ok := byName[p.name]; ok {
+		if i, ok := byName[p.name]; ok && !t.individual {
 			v := &b.Players[i]
 			v.Kills += p.kills
 			v.Deaths += p.deaths

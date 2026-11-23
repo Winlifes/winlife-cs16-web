@@ -72,3 +72,8 @@ footer{position:fixed;z-index:1;left:clamp(24px,7vw,130px);bottom:28px;display:g
 .team-roster ul{list-style:none;margin:0;padding:0;max-height:6.5em;overflow:auto}
 .team-roster li{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 0}
 .team-roster p{margin:0}
+.team-0 td:nth-child(2),.team-0 th:nth-child(2){text-align:left;overflow-wrap:anywhere}
+#individual-scoreboard{position:absolute;z-index:24;top:48%;left:50%;transform:translate(-50%,-50%);width:min(760px,94vw);max-height:78dvh;overflow:auto;background:#222d20f5}
+#individual-scoreboard h2{margin:0 0 14px;color:var(--gold);font-size:20px}
+html[data-input-mode="playing"] #individual-scoreboard{pointer-events:none}
+#game[data-mode="freeforall"] .team-roster,#game[data-mode="freeforall"] .team-choice em{display:none}

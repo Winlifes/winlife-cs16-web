@@ -39,6 +39,7 @@ export class GameUI {
     private readonly teamRoster:TeamRoster;
     private readonly shop:QuickBuy;
     private originalBuy=false;
+    private get individual():boolean {return this.mode==="freeforall";}
     constructor(private readonly command:(value:string)=>void,private readonly confirmWeapon:()=>void=()=>{},private readonly ownTeam:()=>number|undefined=()=>undefined,leave:()=>void=()=>window.location.reload(),readBuyState:()=>BuyContext|undefined=()=>undefined,readRoster:()=>NativeRosterPlayer[]=()=>[]){
         this.teams=new TeamSelection(command,()=>({team:this.ownTeam(),joined:this.hasTeam}));
         this.teamRoster=new TeamRoster(readRoster);
@@ -60,7 +61,7 @@ export class GameUI {
         el("damage-toggle").onclick=()=>this.show("damage");
         el("bots-toggle").onclick=()=>this.show("bots");
         el("tools-toggle").onclick=()=>this.show("tools");
-        el("scores-toggle").onclick=()=>{this.show("scores");this.command("+showscores");};
+        el("scores-toggle").onclick=()=>{this.show("scores");if(!this.individual)this.command("+showscores");};
         el("result-damage").onclick=()=>this.show("damage");
         el("scores-back").onclick=()=>this.pause();
         el("buy-menu").onclick=()=>{el("input-status").textContent="需在购买区且购买时间内才能购买装备。";this.command("buy");};
@@ -76,6 +77,11 @@ export class GameUI {
         });
         el("leave").onclick=leave;
         window.addEventListener("keydown",event=>this.keydown(event),true);
+        window.addEventListener("keyup",event=>{
+            if(this.active&&this.individual&&this.panel==="playing"&&event.key==="Tab"){
+                el("individual-scoreboard").hidden=true;event.preventDefault();event.stopImmediatePropagation();
+            }
+        },true);
         for(const type of ["keyup","keypress"]){window.addEventListener(type,event=>{
             if(this.active&&this.blocksEngine(event))event.stopImmediatePropagation();
         },true);}
@@ -102,10 +108,17 @@ export class GameUI {
     begin():void {this.active=true;this.resetConnection();}
     setMode(mode?:string):void {
         this.mode=mode;
+        this.game.dataset.mode=mode??"classic";
         const party=isPartyMode(mode);
         el("bots-toggle").hidden=party;
         el("buy-menu").hidden=party;
         el("party-team-rule").hidden=!party;
+        el("individual-team-rule").hidden=!this.individual;
+        if(this.individual){
+            el("team-title").textContent="选择角色";
+            el("scores-toggle").textContent="个人排行榜";
+            el("scoreboard-caption").textContent="击杀数相同的玩家并列";
+        }
         this.battlePhase("warmup");
     }
     battlePhase(phase:string):void {
@@ -165,12 +178,13 @@ export class GameUI {
         document.documentElement.dataset.inputMode=panel==="playing"?"playing":["native","scores","unlocked"].includes(panel)?"native":"menu";
         el("overlay").hidden=["playing","native","scores","unlocked"].includes(panel);
         for(const name of ["team","ready","pause","tools","bots","mouse","damage","shop","result"] as const)el(name).hidden=name!==panel;
-        this.teamRoster.setVisible(panel==="team");
+        this.teamRoster.setVisible(panel==="team"&&!this.individual);
         this.shop.setVisible(panel==="shop");
         el("native-menu-hint").hidden=panel!=="native"&&panel!=="unlocked";
         el("native-hint-text").textContent=panel==="unlocked"?"点击画面继续战斗":"选择装备后自动返回战斗";
         el("native-quick-buy").hidden=panel!=="native"||!this.buyMenu;
         el("scoreboard-hint").hidden=panel!=="scores";
+        el("individual-scoreboard").hidden=panel!=="scores"||!this.individual;
         el("hud-hint").hidden=true;
         el("team-back").hidden=!this.hasTeam;
         if(panel!=="playing"){
@@ -289,6 +303,9 @@ export class GameUI {
         if(el<HTMLDialogElement>("release-dialog").open){event.stopImmediatePropagation();return;}
         const key=event.key.toLowerCase();
         const editing=event.target instanceof Element&&!!event.target.closest("input,textarea,select");
+        if(this.panel==="playing"&&this.individual&&key==="tab"&&!editing){
+            el("individual-scoreboard").hidden=false;event.preventDefault();event.stopImmediatePropagation();return;
+        }
         if(this.panel==="playing"&&!editing&&key==="b"&&isPartyMode(this.mode)){
             event.preventDefault();event.stopImmediatePropagation();return;
         }

@@ -15,8 +15,9 @@ export function renderTeammates(labels:TeammateLabel[]):void {
     for(const [id,element] of names)if(!visible.has(id)){element.remove();names.delete(id);}
 }
 
-export interface MatchView {id?:string;mode?:string;phase:string;half:number;round:number;scoreA:number;scoreB:number;swapped:boolean;halfRounds:number;target:number;endsAt?:number;winner?:string;}
-export function renderMatch(state:MatchView,team?:number):void {
+export interface IndividualPlayer {id:number;name:string;kills:number;deaths:number;playing:boolean;}
+export interface MatchView {id?:string;mode?:string;phase:string;half:number;round:number;scoreA:number;scoreB:number;swapped:boolean;halfRounds:number;target:number;endsAt?:number;winner?:string;players?:IndividualPlayer[];}
+export function renderMatch(state:MatchView,team?:number,ownName?:string):void {
     const el=(id:string)=>document.getElementById(id)!;
     el("match-hud").hidden=false;
     el("match-hud").dataset.phase=state.phase;
@@ -27,7 +28,16 @@ export function renderMatch(state:MatchView,team?:number):void {
     let status=state.phase==="warmup"?"等待双方玩家 · 热身不计分":`${state.half===1?"上":"下"}半场 · 第 ${state.round} 回合 · 先到 ${state.target} 分`;
     if(state.mode==="duel"&&state.phase==="live")status=`1v1 单挑 · 第 ${state.round} 局 · 先赢 ${state.target} 局`;
     const seconds=state.endsAt?Math.max(0,Math.ceil((state.endsAt-Date.now())/1000)):0;
-    if(deathmatch&&state.phase==="live")status=`团队死斗 · 先到 ${state.target} 击杀 · ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,"0")}`;
+    const clock=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,"0")}`;
+    if(deathmatch&&state.phase==="live")status=`团队死斗 · 先到 ${state.target} 击杀 · ${clock}`;
+    if(state.mode==="freeforall"){
+        const own=state.players?.find(player=>player.playing&&player.name===ownName);
+        el("match-a").textContent="你的击杀";
+        el("match-b").textContent="领先击杀";
+        el("match-score-a").textContent=String(own?.kills??"—");
+        el("match-score-b").textContent=String(state.players?.[0]?.kills??0);
+        status=state.phase==="warmup"?"个人竞技 · 等待至少两名玩家":`个人竞技 · 先到 ${state.target} 击杀 · ${clock}`;
+    }
     if(state.phase==="starting")status="对局即将开始";
     if(state.phase==="halftime")status=`半场结束 · 自动交换 T / CT · ${seconds} 秒后继续`;
     if(isPartyMode(state.mode)){
@@ -48,6 +58,9 @@ function partyStatus(state:MatchView,team:number|undefined,seconds:number):strin
 }
 
 export function matchResultTitle(state:MatchView):string {
+    if(state.mode==="freeforall"){
+        return state.winner==="draw"?"并列第一":`${state.players?.[0]?.name??"玩家"} 获胜`;
+    }
     if(state.winner==="draw")return "双方平局";
     if(state.mode==="infection")return `${partyRole(state.mode,state.winner==="A"?1:2)}获胜`;
     if(state.mode==="deathmatch")return `${state.winner==="A"?"恐怖分子 T":"反恐精英 CT"} 获胜`;

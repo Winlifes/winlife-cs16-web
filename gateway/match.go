@@ -32,12 +32,18 @@ type matchView struct {
 	Winner     string `json:"winner,omitempty"`
 }
 
+type matchSnapshot struct {
+	matchView
+	Players []individualPlayer `json:"players,omitempty"`
+}
+
 type matchController struct {
-	mu    sync.Mutex
-	view  matchView
-	armed bool
-	ct, t int
-	teams map[string]int
+	mu         sync.Mutex
+	view       matchView
+	armed      bool
+	ct, t      int
+	teams      map[int]int
+	individual map[int]individualPlayer
 }
 
 func newMatchController(halfRounds int) *matchController {
@@ -51,8 +57,8 @@ func newRoomMatch(mode string) *matchController {
 	switch mode {
 	case duelMode:
 		view = matchView{Mode: duelMode, Target: 7}
-	case deathmatchMode:
-		view = matchView{Mode: deathmatchMode, Target: deathmatchTarget}
+	case deathmatchMode, individualMode:
+		view = matchView{Mode: mode, Target: deathmatchTarget}
 	case infectionMode:
 		view = matchView{Mode: infectionMode, Target: 1}
 	case hideMode:
@@ -75,7 +81,10 @@ func (m *matchController) reset(phase string) {
 	m.ct = 0
 	m.t = 0
 	if phase == "warmup" && m.view.Mode == deathmatchMode {
-		m.teams = make(map[string]int)
+		m.teams = make(map[int]int)
+	}
+	if m.view.Mode == individualMode {
+		m.resetIndividual(phase)
 	}
 	m.publish()
 }
@@ -83,7 +92,15 @@ func (m *matchController) publish() {
 	data, _ := json.Marshal(m.view)
 	log.Printf("COMBAT_STATE %s", data)
 }
-func (m *matchController) snapshot() matchView { m.mu.Lock(); defer m.mu.Unlock(); return m.view }
+func (m *matchController) snapshot() matchSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return matchSnapshot{matchView: m.view, Players: m.rankIndividuals()}
+}
+
+func (m *matchController) timedDeathmatch() bool {
+	return m.view.Mode == deathmatchMode || m.view.Mode == individualMode
+}
 
 func matchCommands(commands []string) {
 	for _, command := range commands {
@@ -119,15 +136,28 @@ func (m *matchController) consume(line string, now time.Time) []string {
 	if m.view.Mode == deathmatchMode && m.view.Phase == "warmup" {
 		return m.waitForDeathmatchTeams(event)
 	}
+	if m.view.Mode == individualMode {
+		m.updateIndividualRoster(event)
+		switch m.view.Phase {
+		case "warmup":
+			if m.playingIndividuals() >= 2 {
+				m.reset("starting")
+				return []string{"sv_restart 1"}
+			}
+			return nil
+		case "finished":
+			return nil
+		}
+	}
 	if strings.HasPrefix(event, `World triggered "Game_Commencing"`) {
-		if m.view.Phase != "halftime" && m.view.Phase != "finished" && m.view.Phase != "starting" {
+		if m.view.Mode != individualMode && m.view.Phase != "halftime" && m.view.Phase != "finished" && m.view.Phase != "starting" {
 			m.reset("starting")
 		}
 		return nil
 	}
 	if strings.HasPrefix(event, `World triggered "Restart_Round_(`) {
 		// Native halftime and result restarts clear only engine half scores.
-		if m.view.Phase == "live" {
+		if m.view.Phase == "live" && m.view.Mode != individualMode {
 			m.reset("starting")
 		}
 		return nil
@@ -135,11 +165,15 @@ func (m *matchController) consume(line string, now time.Time) []string {
 	if event == `World triggered "Round_Start"` {
 		switch m.view.Phase {
 		case "starting":
+			if m.view.Mode == individualMode && m.playingIndividuals() < 2 {
+				m.view.Phase = "warmup"
+				return nil
+			}
 			m.view.Phase = "live"
 			m.ct = 0
 			m.t = 0
 			m.armed = true
-			if m.view.Mode == deathmatchMode {
+			if m.timedDeathmatch() {
 				m.view.EndsAt = now.Add(deathmatchDuration).UnixMilli()
 			}
 		case "halftime":
@@ -157,6 +191,9 @@ func (m *matchController) consume(line string, now time.Time) []string {
 	}
 	if m.view.Mode == deathmatchMode {
 		return m.countDeathmatchKill(event, now)
+	}
+	if m.view.Mode == individualMode && m.view.Phase == "live" {
+		return m.countIndividualKill(event, now)
 	}
 	won := wonRound.FindStringSubmatch(event)
 	if len(won) != 4 || m.view.Phase != "live" || !m.armed {
@@ -195,14 +232,14 @@ func (m *matchController) consume(line string, now time.Time) []string {
 }
 
 func (m *matchController) waitForDeathmatchTeams(event string) []string {
-	id, team, ok := combat.PlayingTeamChange(event)
+	player, ok := combat.PlayingTeamChange(event)
 	if !ok {
 		return nil
 	}
-	if team == 1 || team == 2 {
-		m.teams[id] = team
+	if player.Playing() {
+		m.teams[player.ID] = player.Team
 	} else {
-		delete(m.teams, id)
+		delete(m.teams, player.ID)
 	}
 	var hasT, hasCT bool
 	for _, side := range m.teams {
@@ -220,7 +257,12 @@ func (m *matchController) finish() []string {
 	m.view.Phase = "finished"
 	m.view.EndsAt = 0
 	m.view.Winner = "draw"
-	if m.view.ScoreA > m.view.ScoreB {
+	if m.view.Mode == individualMode {
+		ranking := m.rankIndividuals()
+		if len(ranking) > 0 && (len(ranking) == 1 || ranking[0].Kills > ranking[1].Kills) {
+			m.view.Winner = "individual"
+		}
+	} else if m.view.ScoreA > m.view.ScoreB {
 		m.view.Winner = "A"
 	} else if m.view.ScoreB > m.view.ScoreA {
 		m.view.Winner = "B"
@@ -250,7 +292,7 @@ func (m *matchController) countDeathmatchKill(event string, now time.Time) []str
 func (m *matchController) tick(now time.Time) []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.view.Mode == deathmatchMode && m.view.Phase == "live" && now.UnixMilli() >= m.view.EndsAt {
+	if m.timedDeathmatch() && m.view.Phase == "live" && now.UnixMilli() >= m.view.EndsAt {
 		commands := m.finish()
 		m.publish()
 		return commands
@@ -262,7 +304,7 @@ func (m *matchController) resetEngine() []string {
 	if isPartyMode(m.view.Mode) {
 		return []string{"winlife_party_reset"}
 	}
-	if m.view.Mode == deathmatchMode {
+	if m.timedDeathmatch() {
 		return []string{"exec winlife_mode.cfg", "sv_restart 1"}
 	}
 	return []string{"mp_round_infinite 0", "mp_freezetime 3", "sv_restart 1"}

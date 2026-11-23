@@ -1,8 +1,8 @@
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
-index d7e0461..99fcee0 100644
+index d7e0461..5a12172 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
-@@ -5638,12 +5638,66 @@ CBaseEntity *g_pLastSpawn;
+@@ -5638,12 +5638,68 @@ CBaseEntity *g_pLastSpawn;
  CBaseEntity *g_pLastCTSpawn;
  CBaseEntity *g_pLastTerroristSpawn;
  
@@ -15,10 +15,12 @@ index d7e0461..99fcee0 100644
 +	int count = 0;
 +	for (int i = useTeamStarts ? 1 : 0; i < (useTeamStarts ? 3 : 1); ++i)
 +	{
-+		CBaseEntity *spot = nullptr;
-+		while ((spot = UTIL_FindEntityByClassname(spot, types[i])))
++		// YaPB creates these points through the engine after map activation.
++		edict_t *entity = nullptr;
++		while (!FNullEnt(entity = FIND_ENTITY_BY_CLASSNAME(entity, types[i])))
 +		{
-+			if (spot->pev->origin == g_vecZero || !IsSpawnPointValid(player, spot, 64.0f))
++			CBaseEntity *spot = CBaseEntity::Instance(entity);
++			if (!spot || spot->pev->origin == g_vecZero || !IsSpawnPointValid(player, spot, 64.0f))
 +				continue;
 +
 +			const Vector origin = spot->pev->origin + Vector(0, 0, 1);

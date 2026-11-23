@@ -1,5 +1,5 @@
 const movementKeys = ["w", "a", "s", "d", "r"];
-export const fullscreenGameKeys = ["KeyW", "KeyA", "KeyS", "KeyD", "KeyR", "F4", "F5"];
+export const fullscreenGameKeys = ["KeyW", "KeyA", "KeyS", "KeyD", "KeyR", "F4", "F5", "Escape"];
 
 /** Cancel the browser action while still delivering crouched movement to SDL. */
 export function protectGameShortcut(event: KeyboardEvent, playing: boolean): boolean {

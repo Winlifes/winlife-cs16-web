@@ -25,6 +25,7 @@ export class GameUI {
     private nativeGeneration=0;
     private buyMenu?:string;
     private hintTimer?:ReturnType<typeof setTimeout>;
+    private autoFullscreenAttempted=false;
     private readonly game=el("game");
     private readonly canvas=el<HTMLCanvasElement>("canvas");
     private readonly keyboard=(navigator as Navigator & {keyboard?: KeyboardLock}).keyboard;
@@ -43,7 +44,8 @@ export class GameUI {
         this.shop=new QuickBuy(()=>readBuyState()??{team:this.ownTeam()??0,map:"",alive:false},command,()=>void this.enter(),()=>{
             this.originalBuy=true;this.command("buy");setTimeout(()=>{if(this.panel==="shop")this.originalBuy=false;},1500);
         });
-        for(const id of ["resume","start-battle","native-resume","shop-resume","mouse-resume","damage-resume"])el(id).onclick=()=>void this.enter();
+        el("start-battle").onclick=()=>void this.enter(true);
+        for(const id of ["resume","native-resume","shop-resume","mouse-resume","damage-resume"])el(id).onclick=()=>void this.enter();
         el("native-quick-buy").onclick=()=>this.openShop();
         for(const id of ["team-toggle","ready-team"])el(id).onclick=()=>this.openTeam();
         for(const id of ["team-back","tools-back","native-back","bots-back","mouse-back","damage-back"])el(id).onclick=()=>this.pause();
@@ -55,10 +57,11 @@ export class GameUI {
         el("result-damage").onclick=()=>this.show("damage");
         el("scores-back").onclick=()=>this.pause();
         el("buy-menu").onclick=()=>{el("input-status").textContent="需在购买区且购买时间内才能购买装备。";this.command("buy");};
-        el("fullscreen").onclick=()=>void this.toggleFullscreen();
+        const fullscreenButton=el<HTMLButtonElement>("fullscreen");
+        fullscreenButton.onclick=()=>void this.toggleFullscreen();
         this.game.addEventListener("fullscreenchange",()=>{
             const fullscreen=document.fullscreenElement===this.game;
-            el("fullscreen").textContent=fullscreen?"退出全屏":"全屏防误触";
+            fullscreenButton.textContent=fullscreen?"退出全屏":"全屏防误触";
             if(!fullscreen){
                 this.keyboard?.unlock();
                 el("input-status").textContent="已退出全屏。窗口内可用 V 蹲下。";
@@ -200,7 +203,7 @@ export class GameUI {
         } catch(error){if(generation===this.generation)el("team-status").textContent=error instanceof Error?error.message:String(error);}
         finally{this.selecting=false;this.updateTeamButtons();}
     }
-    private async enter():Promise<void> {
+    private async enter(startBattle=false):Promise<void> {
         if(this.isSettled){this.show("result");return;}
         if(!this.hasTeam){this.show("team");return;}
         this.closeNative();
@@ -210,7 +213,17 @@ export class GameUI {
         this.show("unlocked");
         const buttons=["resume","start-battle","native-resume","shop-resume","mouse-resume","damage-resume"].map(id=>el<HTMLButtonElement>(id));
         buttons.forEach(button=>button.disabled=true);
-        try{await this.pointer.enter();}finally{buttons.forEach(button=>button.disabled=false);}
+        const enterFullscreen=startBattle&&!this.autoFullscreenAttempted&&!document.fullscreenElement;
+        if(startBattle)this.autoFullscreenAttempted=true;
+        try {
+            // Fullscreen consumes the click's user activation, so request the
+            // pointer first. Both requests must start before awaiting either.
+            const pointer=this.pointer.enter();
+            if(enterFullscreen)await Promise.all([pointer,this.toggleFullscreen()]);
+            else await pointer;
+        } finally {
+            buttons.forEach(button=>button.disabled=false);
+        }
     }
     private async toggleFullscreen(): Promise<void> {
         const button=el<HTMLButtonElement>("fullscreen");
@@ -227,11 +240,11 @@ export class GameUI {
                 return;
             }
             try {
-                // Capture only the conflicting keys. Escape remains available
-                // to the browser and the existing in-game menu.
+                // A short Escape opens the game's menu and keeps protection.
+                // The browser still lets the user leave by holding Escape.
                 await this.keyboard.lock(fullscreenGameKeys);
                 if (document.fullscreenElement===this.game) {
-                    status.textContent="全屏按键保护已开启，可用 Ctrl + W 蹲走。";
+                    status.textContent="已保护 Ctrl + W 和 Ctrl + Shift + W。";
                 } else {
                     this.keyboard.unlock();
                 }

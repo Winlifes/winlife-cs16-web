@@ -48,9 +48,11 @@ it("still opens the pause menu during combat and never escapes a required team c
     const final=setup("result",true,true);expect(final.ui.enter).not.toHaveBeenCalled();expect(final.ui.show).toHaveBeenCalledWith("result");
 });
 it("protects the browser from Ctrl+W while keeping the native crouch-movement key",()=>{
-    const game=setup("playing",true,false,false,{key:"w",ctrlKey:true});
-    expect(game.event.preventDefault).toHaveBeenCalledOnce();
-    expect(game.event.stopImmediatePropagation).not.toHaveBeenCalled();
+    for(const keyboard of [{key:"w",ctrlKey:true},{key:"W",ctrlKey:true,shiftKey:true}]){
+        const game=setup("playing",true,false,false,keyboard);
+        expect(game.event.preventDefault).toHaveBeenCalledOnce();
+        expect(game.event.stopImmediatePropagation).not.toHaveBeenCalled();
+    }
     const ordinary=setup("playing",true,false,false,{key:"w"});
     expect(ordinary.event.preventDefault).not.toHaveBeenCalled();
     const lobby=setup("result",true,true,false,{key:"w",ctrlKey:true});

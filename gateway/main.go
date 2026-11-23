@@ -47,7 +47,7 @@ type peer struct {
 	up, down, upBytes, downBytes, drops atomic.Uint64
 }
 
-const gatewayVersion = "0.1.10"
+const gatewayVersion = "0.1.11"
 
 var (
 	api           *webrtc.API
@@ -102,7 +102,7 @@ func capture(r io.Reader) {
 	}
 }
 func startEngine() error {
-	engine = exec.Command(env("CS16_ENGINE", "./engine/xash"), "-game", "cstrike", "-dll", "@yapb", "-port", env("CS16_ENGINE_PORT", "27015"), "+ip", "127.0.0.1", "+maxplayers", env("CS16_MAX_PLAYERS", "16"), "+map", env("CS16_MAP", "de_dust2"), "+exec", "server.cfg", "-console", "-nowcon", "-noipx")
+	engine = exec.Command(env("CS16_ENGINE", "./engine/xash"), "-game", "cstrike", "-dll", "@yapb", "-port", env("CS16_ENGINE_PORT", "27015"), "+ip", "127.0.0.1", "+maxplayers", env("CS16_MAX_PLAYERS", "16"), "+map", env("CS16_MAP", "de_dust2"), "+exec", "server.cfg", "-console", "-nowcon", "-noipx", "-winlife-gateway")
 	engine.Dir = env("CS16_GAME_DIR", "./game")
 	var err error
 	console, err = engine.StdinPipe()

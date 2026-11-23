@@ -1,0 +1,62 @@
+diff --git a/engine/server/sv_client.c b/engine/server/sv_client.c
+index f348c77..bd0917a 100644
+--- a/engine/server/sv_client.c
++++ b/engine/server/sv_client.c
+@@ -356,6 +356,7 @@ static void SV_ConnectClient( netadr_t from )
+ 	int extensions;
+ 	uint netchan_flags = 0;
+ 	uint64_t netchan_cookie = 0;
++	const qboolean gateway = Sys_CheckParm( "-winlife-gateway" ) != 0;
+ 
+ 	if( Cmd_Argc() < 5 )
+ 		return;
+@@ -443,7 +444,7 @@ static void SV_ConnectClient( netadr_t from )
+ 		}
+ 	}
+ 
+-	// if there is already a slot for this ip, reuse it
++	// The gateway keeps a distinct UDP endpoint for each browser.
+ 	for( int i = 0; i < svs.maxclients; i++ )
+ 	{
+ 		sv_client_t *cl = &svs.clients[i];
+@@ -451,7 +452,8 @@ static void SV_ConnectClient( netadr_t from )
+ 		if( cl->state == cs_free || cl->state == cs_zombie )
+ 			continue;
+ 
+-		if( NET_CompareBaseAdr( from, cl->netchan.remote_address ) && ( cl->netchan.qport == qport || from.port == cl->netchan.remote_address.port ))
++		if( NET_CompareBaseAdr( from, cl->netchan.remote_address ) &&
++			( from.port == cl->netchan.remote_address.port || ( !gateway && cl->netchan.qport == qport )))
+ 		{
+ 			newcl = cl;
+ 			Con_Reportf( S_NOTE "%s:reconnect\n", NET_AdrToString( from ));
+@@ -463,7 +465,7 @@ static void SV_ConnectClient( netadr_t from )
+ 	// the slot will be wiped clean.
+ 	if( !newcl )
+ 	{
+-		if( sv_connect_max_per_ip.value > 0.0f && !NET_IsLocalAddress( from ) && SV_CountConnectingClients( from ) >= sv_connect_max_per_ip.value )
++		if( !gateway && sv_connect_max_per_ip.value > 0.0f && !NET_IsLocalAddress( from ) && SV_CountConnectingClients( from ) >= sv_connect_max_per_ip.value )
+ 		{
+ 			SV_RejectConnection( from, "too many connections from your address\n" );
+ 			return;
+diff --git a/engine/server/sv_main.c b/engine/server/sv_main.c
+index a942449..5b1d41d 100644
+--- a/engine/server/sv_main.c
++++ b/engine/server/sv_main.c
+@@ -381,6 +381,7 @@ static void SV_ReadPackets( void )
+ 	sv_client_t	*cl;
+ 	int		i;
+ 	size_t		curSize;
++	const qboolean gateway = Sys_CheckParm( "-winlife-gateway" ) != 0;
+ 
+ 	while( NET_GetPacket( NS_SERVER, &net_from, net_message_buffer, &curSize ))
+ 	{
+@@ -404,6 +405,9 @@ static void SV_ReadPackets( void )
+ 			if( !NET_CompareBaseAdr( net_from, cl->netchan.remote_address ))
+ 				continue;
+ 
++			if( gateway && net_from.port != cl->netchan.remote_address.port )
++				continue;
++
+ 			if( !Netchan_Process( &cl->netchan, &net_message ))
+ 			{
+ 				// a packet carrying nothing but fragments is reported as rejected

@@ -1,0 +1,149 @@
+diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
+index 9da814c..516c7c8 100644
+--- a/regamedll/dlls/client.cpp
++++ b/regamedll/dlls/client.cpp
+@@ -1635,6 +1635,7 @@ CBaseEntity *EXT_FUNC __API_HOOK(BuyWeaponByWeaponID)(CBasePlayer *pPlayer, Weap
+ 	WinlifeBuyScope winlifeBuy(pPlayer);
+ 	auto pEntity = pPlayer->GiveNamedItem(info->entityName);
+ 	pPlayer->AddAccount(-info->cost, RT_PLAYER_BOUGHT_SOMETHING);
++	WinlifeRememberPurchasedPrimary(pPlayer, pEntity);
+ 
+ #ifdef REGAMEDLL_ADD
+ 	if (refill_bpammo_weapons.value > 1)
+diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
+index 5a12172..0b79136 100644
+--- a/regamedll/dlls/player.cpp
++++ b/regamedll/dlls/player.cpp
+@@ -1685,6 +1685,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(GiveDefaultItems)()
+ 		if (pItem) {
+ 			GiveAmmo(refill_bpammo_weapons.value != 0.0f ? pItem->iMaxAmmo1() : ammo, pItem->pszAmmo1(), pItem->iMaxAmmo1());
+ 		}
++		return pItem;
+ 	};
+ 
+ 	bool bGiveKnife = false;
+@@ -1749,8 +1750,18 @@ void EXT_FUNC CBasePlayer::__API_HOOK(GiveDefaultItems)()
+ 		}
+ 	}
+ 
+-	// Give default primary equipment
++	// A purchased free-for-all primary uses the normal spawn ammo rules.
++	CBasePlayerItem *preferredPrimary = nullptr;
++	if (const auto *info = WinlifeRespawnPrimary(this))
++		preferredPrimary = GiveWeapon(info->gunClipSize * iAmountOfBPAmmo, info->entityName);
++
++	if (preferredPrimary)
++	{
++		SwitchWeapon(preferredPrimary);
++	}
++	else
+ 	{
++		// Give default primary equipment.
+ 		char *primaryString = NULL;
+ 		int primaryCount = 0;
+ 		const int MAX_PRIMARY = 39; // x2 + 1
+diff --git a/regamedll/dlls/winlife_buy.cpp b/regamedll/dlls/winlife_buy.cpp
+index 2bfed30..f7774bc 100644
+--- a/regamedll/dlls/winlife_buy.cpp
++++ b/regamedll/dlls/winlife_buy.cpp
+@@ -14,6 +14,7 @@ struct State {
+     int user, round, team, money, kevlar;
+     float health, armor;
+     bool kit, nvg, shield;
++    WeaponIdType spawnPrimary;
+     std::array<int,MAX_AMMO_SLOTS> ammo;
+     std::vector<Weapon> weapons;
+ };
+@@ -24,19 +25,35 @@ struct Receipt {
+     int cost=0, count=0;
+     bool valid=true;
+ };
+-struct Ledger { Receipt last, pending; bool grouping=false; float started=0; const char *reason="empty"; };
++struct Ledger {
++    Receipt last, pending;
++    bool grouping=false;
++    float started=0;
++    const char *reason="empty";
++    int spawnUser=0;
++    WeaponIdType spawnPrimary=WEAPON_NONE;
++};
+ std::array<Ledger,33> ledgers;
+ Ledger *ledger(CBasePlayer *p) { const int i=p?p->entindex():0; return i>0 && i<33 && !p->IsBot()?&ledgers[i]:nullptr; }
++
++bool individualMode() {
++    return g_pGameRules && g_pGameRules->IsDeathmatch() && CSGameRules()->IsFreeForAll();
++}
++WeaponIdType spawnPrimary(CBasePlayer *p, int user) {
++    const auto *l = ledger(p);
++    return individualMode() && l && user > 0 && l->spawnUser == user ? l->spawnPrimary : WEAPON_NONE;
++}
+ State state(CBasePlayer *p) {
+     State s{};s.user=GETPLAYERUSERID(p->edict());s.round=CSGameRules()->m_iTotalRoundsPlayed;s.team=p->m_iTeam;s.money=p->m_iAccount;
+     s.health=p->pev->health;s.armor=p->pev->armorvalue;s.kevlar=p->m_iKevlar;s.kit=p->m_bHasDefuser;s.nvg=p->m_bHasNightVision;s.shield=p->HasShield();
++    s.spawnPrimary=spawnPrimary(p,s.user);
+     for(int i=0;i<MAX_AMMO_SLOTS;++i)s.ammo[i]=p->m_rgAmmo[i];
+     for(auto head:p->m_rgpPlayerItems)for(auto w=head;w;w=w->m_pNext)
+         s.weapons.push_back({w->entindex(),w->edict()->serialnumber,w->m_iId,w->IsWeapon()?static_cast<CBasePlayerWeapon*>(w)->m_iClip:-1});
+     std::sort(s.weapons.begin(),s.weapons.end(),[](const Weapon &a,const Weapon &b){return a.index<b.index;});return s;
+ }
+ bool same(const State &a,const State &b) {
+-    return a.user==b.user && a.round==b.round && a.team==b.team && a.money==b.money && a.health==b.health && a.armor==b.armor && a.kevlar==b.kevlar && a.kit==b.kit && a.nvg==b.nvg && a.shield==b.shield && a.ammo==b.ammo && a.weapons==b.weapons;
++    return a.user==b.user && a.round==b.round && a.team==b.team && a.money==b.money && a.health==b.health && a.armor==b.armor && a.kevlar==b.kevlar && a.kit==b.kit && a.nvg==b.nvg && a.shield==b.shield && a.spawnPrimary==b.spawnPrimary && a.ammo==b.ammo && a.weapons==b.weapons;
+ }
+ bool contains(const State &s,const Weapon &w) { return std::any_of(s.weapons.begin(),s.weapons.end(),[&](const Weapon &x){return x.index==w.index && x.serial==w.serial;}); }
+ void emit(CBasePlayer *p,const char *code,int cost=0,int count=0) {
+@@ -56,6 +73,33 @@ void finish(CBasePlayer *p,Ledger &l) {
+ }
+ }
+ 
++void WinlifeRememberPurchasedPrimary(CBasePlayer *p, CBaseEntity *purchased) {
++    if (!individualMode() || !purchased)
++        return;
++    auto *l = ledger(p);
++    const auto *primary = p->m_rgpPlayerItems[PRIMARY_WEAPON_SLOT];
++    if (!l || primary != purchased)
++        return;
++
++    const int user = GETPLAYERUSERID(p->edict());
++    if (user > 0) {
++        l->spawnUser = user;
++        l->spawnPrimary = static_cast<WeaponIdType>(primary->m_iId);
++    }
++}
++
++const WeaponInfoStruct *WinlifeRespawnPrimary(CBasePlayer *p) {
++    const auto weapon = spawnPrimary(p, GETPLAYERUSERID(p->edict()));
++    if (weapon == WEAPON_NONE)
++        return nullptr;
++    const auto item = GetItemIdByWeaponId(weapon);
++    if (item == ITEM_NONE || !IsPrimaryWeapon(item) || p->HasRestrictItem(item, ITEM_TYPE_EQUIPPED))
++        return nullptr;
++
++    const auto *info = GetWeaponInfo(weapon);
++    return info && info->entityName ? info : nullptr;
++}
++
+ void WinlifeBuyInvalidate(CBasePlayer *p) {
+     auto l=ledger(p);if(!l)return;
+     if(l->last.cost || l->pending.cost)l->reason="used";
+@@ -103,6 +147,10 @@ bool WinlifeBuyCommand(CBasePlayer *p,const char *command) {
+     const Receipt receipt=l->last;
+     // Invalidate before mutations: a repeated request can never return money twice.
+     l->last=Receipt{};l->reason="empty";
++    if (individualMode()) {
++        l->spawnUser = receipt.first.user;
++        l->spawnPrimary = receipt.first.spawnPrimary;
++    }
+     for(const auto &w:receipt.added) {
+         auto item=static_cast<CBasePlayerItem*>(CBaseEntity::Instance(INDEXENT(w.index)));
+         if(item==p->m_pActiveItem && item->IsWeapon())static_cast<CBasePlayerWeapon*>(item)->RetireWeapon();
+diff --git a/regamedll/dlls/winlife_buy.h b/regamedll/dlls/winlife_buy.h
+index 107c2cf..1ab174b 100644
+--- a/regamedll/dlls/winlife_buy.h
++++ b/regamedll/dlls/winlife_buy.h
+@@ -8,3 +8,5 @@ struct WinlifeBuyScope {
+ };
+ bool WinlifeBuyCommand(CBasePlayer *p, const char *command);
+ void WinlifeBuyInvalidate(CBasePlayer *p);
++void WinlifeRememberPurchasedPrimary(CBasePlayer *p, CBaseEntity *purchased);
++const WeaponInfoStruct *WinlifeRespawnPrimary(CBasePlayer *p);

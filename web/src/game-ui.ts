@@ -1,5 +1,7 @@
 import {PointerCapture} from "./pointer-capture";
 import {TeamSelection} from "./team-selection";
+import {TeamRoster} from "./team-roster";
+import type {NativeRosterPlayer} from "./game-telemetry";
 import {buyKeyAction} from "./buy-keys";
 import {QuickBuy} from "./quick-buy";
 import {classicBuyCategory,type BuyContext} from "./buy-catalog";
@@ -31,10 +33,12 @@ export class GameUI {
     private readonly keyboard=(navigator as Navigator & {keyboard?: KeyboardLock}).keyboard;
     private readonly pointer:PointerCapture;
     private readonly teams:TeamSelection;
+    private readonly teamRoster:TeamRoster;
     private readonly shop:QuickBuy;
     private originalBuy=false;
-    constructor(private readonly command:(value:string)=>void,private readonly confirmWeapon:()=>void=()=>{},private readonly ownTeam:()=>number|undefined=()=>undefined,leave:()=>void=()=>window.location.reload(),readBuyState:()=>BuyContext|undefined=()=>undefined){
+    constructor(private readonly command:(value:string)=>void,private readonly confirmWeapon:()=>void=()=>{},private readonly ownTeam:()=>number|undefined=()=>undefined,leave:()=>void=()=>window.location.reload(),readBuyState:()=>BuyContext|undefined=()=>undefined,readRoster:()=>NativeRosterPlayer[]=()=>[]){
         this.teams=new TeamSelection(command,()=>({team:this.ownTeam(),joined:this.hasTeam}));
+        this.teamRoster=new TeamRoster(readRoster);
         this.pointer=new PointerCapture(this.canvas,captured=>{
             console.info("[Input]",captured?"captured":"released",{focused:document.hasFocus(),panel:this.panel});
             if(captured){this.show("playing");el("hud-hint").hidden=false;clearTimeout(this.hintTimer);this.hintTimer=setTimeout(()=>el("hud-hint").hidden=true,3500);}
@@ -143,6 +147,7 @@ export class GameUI {
         document.documentElement.dataset.inputMode=panel==="playing"?"playing":["native","scores","unlocked"].includes(panel)?"native":"menu";
         el("overlay").hidden=["playing","native","scores","unlocked"].includes(panel);
         for(const name of ["team","ready","pause","tools","bots","mouse","damage","shop","result"] as const)el(name).hidden=name!==panel;
+        this.teamRoster.setVisible(panel==="team");
         this.shop.setVisible(panel==="shop");
         el("native-menu-hint").hidden=panel!=="native"&&panel!=="unlocked";
         el("native-hint-text").textContent=panel==="unlocked"?"点击画面继续战斗":"选择装备后自动返回战斗";

@@ -31,7 +31,7 @@ const releases=new ReleaseCenter(path("release.json"),()=>!joined||matchPhase===
 releases.start();
 const roomPath=(name:string)=>path(`rooms/${roomSession!.room.id}/${name}`);
 const channelPath=(name:string)=>`${roomPath(name)}?session=${encodeURIComponent(roomSession!.token)}`;
-const gameUI=new GameUI(command=>xash?.Cmd_ExecuteString(command),()=>telemetry.confirmWeapon(),()=>telemetry.team(),()=>void lobby.leave().catch(error=>{el("input-status").textContent=String(error);}),()=>telemetry.buyState());
+const gameUI=new GameUI(command=>xash?.Cmd_ExecuteString(command),()=>telemetry.confirmWeapon(),()=>telemetry.team(),()=>void lobby.leave().catch(error=>{el("input-status").textContent=String(error);}),()=>telemetry.buyState(),()=>rtcReady?telemetry.roster():[]);
 const telemetry=new GameTelemetry(()=>xash?.em as unknown as TelemetryRuntime|undefined);
 const mouseSettings=new MouseSettings(command=>xash?.Cmd_ExecuteString(command));
 const damageReports=new DamageReportClient(()=>telemetry.identity(),key=>roomSession?path(`combat-reports-v1/${roomSession.room.id}/${key}.json`):undefined,createDamageRenderer());

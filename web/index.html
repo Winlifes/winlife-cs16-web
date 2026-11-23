@@ -45,8 +45,22 @@
       <section id="team" class="classic-panel game-panel team-panel" hidden role="dialog" aria-modal="true" aria-labelledby="team-title">
         <div class="panel-title"><img src="/ui/cs_logo.png" alt=""><h2 id="team-title">选择队伍</h2><span>SELECT TEAM</span></div>
         <div class="team-options">
-          <button data-team="1" aria-label="加入恐怖分子" class="team-choice"><img src="/ui/terror.png" alt=""><span><strong><kbd>1</kbd> 恐怖分子</strong><small>TERRORIST FORCES</small><em>安放炸弹 / 阻止人质获救</em></span></button>
-          <button data-team="2" aria-label="加入反恐精英" class="team-choice"><img src="/ui/urban.png" alt=""><span><strong><kbd>2</kbd> 反恐精英</strong><small>COUNTER-TERRORISTS</small><em>拆除炸弹 / 营救人质</em></span></button>
+          <div class="team-side">
+            <button data-team="1" aria-label="加入恐怖分子" aria-describedby="team-count-1" class="team-choice"><img src="/ui/terror.png" alt=""><span><strong><kbd>1</kbd> 恐怖分子</strong><small>TERRORIST FORCES</small><em>安放炸弹 / 阻止人质获救</em></span></button>
+            <div class="team-roster">
+              <div class="team-roster-heading"><strong>队员</strong><span id="team-count-1">—</span></div>
+              <ul id="team-roster-1" aria-label="恐怖分子名单" hidden></ul>
+              <p id="team-roster-empty-1">正在同步名单…</p>
+            </div>
+          </div>
+          <div class="team-side">
+            <button data-team="2" aria-label="加入反恐精英" aria-describedby="team-count-2" class="team-choice"><img src="/ui/urban.png" alt=""><span><strong><kbd>2</kbd> 反恐精英</strong><small>COUNTER-TERRORISTS</small><em>拆除炸弹 / 营救人质</em></span></button>
+            <div class="team-roster">
+              <div class="team-roster-heading"><strong>队员</strong><span id="team-count-2">—</span></div>
+              <ul id="team-roster-2" aria-label="反恐精英名单" hidden></ul>
+              <p id="team-roster-empty-2">正在同步名单…</p>
+            </div>
+          </div>
         </div>
         <div class="team-secondary"><button data-team="5"><kbd>5</kbd> 自动分配</button><button data-team="6"><kbd>6</kbd> 旁观比赛</button></div>
         <p id="team-status" class="panel-note" role="status">点击选择队伍，也可按 1、2、5、6。选队时鼠标保持可见。</p>

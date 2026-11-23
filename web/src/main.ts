@@ -179,7 +179,9 @@ async function enterRoom(session:RoomSession) {
         el("game").hidden = false;
         xash.main();
         gameUI.begin();
+        window.addEventListener("beforeunload", confirmLeavingMatch);
         xash.Cmd_ExecuteString(`name "${name}"`);
+        xash.Cmd_ExecuteString('bind "v" "+duck"');
         for (const c of ["rate 100000", "cl_updaterate 60", "cl_cmdrate 60", "ex_interp 0.033", "fps_max 100", `hud_scale ${Math.min(window.devicePixelRatio || 1, 2)}`, "net_graph 0", "cl_showfps 0", "touch_enable 0", "voice_enable 0", "hud_fastswitch 1", "volume 0.5", "setinfo _vgui_menus 1"]) xash.Cmd_ExecuteString(c);
         telemetry.start();
         damageReports.start();
@@ -193,4 +195,18 @@ async function enterRoom(session:RoomSession) {
 const lobby=new Lobby(path,nickname,enterRoom);
 el("vote").onclick = () => {const map = el<HTMLSelectElement>("map").value; xash?.sendEvent("winlife:vote", map); el("vote-status").textContent = `已投票：${map}，等待过半玩家同意。`;};
 el("console-form").addEventListener("submit", event => {event.preventDefault(); const input = el<HTMLInputElement>("command"); xash?.Cmd_ExecuteString(input.value); input.value = "";});
-window.addEventListener("beforeunload", () => {releases.stop();damageReports.stop();combatBoard.stop();telemetry.stop();xash?.close();});
+function confirmLeavingMatch(event: BeforeUnloadEvent): void {
+    if (!lobby.session || matchPhase==="finished") return;
+    event.preventDefault();
+    event.returnValue=true;
+}
+
+// Cancelling the browser's confirmation must keep the game connection alive.
+window.addEventListener("pagehide", event => {
+    if (event.persisted) return;
+    releases.stop();
+    damageReports.stop();
+    combatBoard.stop();
+    telemetry.stop();
+    xash?.close();
+});

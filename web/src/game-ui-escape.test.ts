@@ -2,14 +2,14 @@ import {afterEach,expect,it,vi} from "vitest";
 import {GameUI} from "./game-ui";
 
 afterEach(()=>vi.unstubAllGlobals());
-function setup(panel:string,hasTeam=true,settled=false,repeat=false){
+function setup(panel:string,hasTeam=true,settled=false,repeat=false,keyboard:Partial<KeyboardEvent>={}){
     vi.stubGlobal("document",{getElementById:()=>({open:false})});
     vi.stubGlobal("Element",class {});
     const ui=Object.assign(Object.create(GameUI.prototype),{
         active:true,panel,hasTeam,isSettled:settled,selecting:false,
         pause:vi.fn(),enter:vi.fn(),show:vi.fn(),command:vi.fn(),closeNative:vi.fn(),
     });
-    const event={key:"Escape",repeat,target:null,preventDefault:vi.fn(),stopImmediatePropagation:vi.fn()};
+    const event={key:"Escape",repeat,target:null,preventDefault:vi.fn(),stopImmediatePropagation:vi.fn(),...keyboard};
     ui.keydown(event);return {ui,event};
 }
 it("closes settings and the pause menu on Escape after joining a team",()=>{
@@ -46,4 +46,22 @@ it("still opens the pause menu during combat and never escapes a required team c
     expect(setup("unlocked").ui.pause).toHaveBeenCalledOnce();
     const initial=setup("bots",false);expect(initial.ui.enter).not.toHaveBeenCalled();expect(initial.ui.pause).toHaveBeenCalledOnce();
     const final=setup("result",true,true);expect(final.ui.enter).not.toHaveBeenCalled();expect(final.ui.show).toHaveBeenCalledWith("result");
+});
+it("protects the browser from Ctrl+W while keeping the native crouch-movement key",()=>{
+    const game=setup("playing",true,false,false,{key:"w",ctrlKey:true});
+    expect(game.event.preventDefault).toHaveBeenCalledOnce();
+    expect(game.event.stopImmediatePropagation).not.toHaveBeenCalled();
+    const ordinary=setup("playing",true,false,false,{key:"w"});
+    expect(ordinary.event.preventDefault).not.toHaveBeenCalled();
+    const lobby=setup("result",true,true,false,{key:"w",ctrlKey:true});
+    expect(lobby.event.preventDefault).not.toHaveBeenCalled();
+});
+it("consumes close and refresh shortcuts in a match and keeps ordinary menu keys available",()=>{
+    for(const keyboard of [{key:"w",metaKey:true},{key:"W",ctrlKey:true,shiftKey:true},{key:"F4",ctrlKey:true},{key:"F5"},{key:"r",ctrlKey:true}]){
+        const {event}=setup("pause",true,false,false,keyboard);
+        expect(event.preventDefault).toHaveBeenCalledOnce();
+        expect(event.stopImmediatePropagation).toHaveBeenCalledOnce();
+    }
+    const {event}=setup("native",true,false,false,{key:"F4"});
+    expect(event.preventDefault).not.toHaveBeenCalled();
 });

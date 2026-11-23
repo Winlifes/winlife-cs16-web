@@ -3,10 +3,15 @@ import {TeamSelection} from "./team-selection";
 import {buyKeyAction} from "./buy-keys";
 import {QuickBuy} from "./quick-buy";
 import {classicBuyCategory,type BuyContext} from "./buy-catalog";
+import {fullscreenGameKeys, protectGameShortcut} from "./game-shortcuts";
 
 type Panel="team"|"ready"|"pause"|"tools"|"bots"|"mouse"|"damage"|"shop"|"native"|"scores"|"unlocked"|"playing"|"result";
 const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const releasedCommands=["-attack","-attack2","-reload","-forward","-back","-moveleft","-moveright","-jump","-duck","-use","-showscores"];
+interface KeyboardLock {
+    lock(keys: string[]): Promise<void>;
+    unlock(): void;
+}
 
 export class GameUI {
     private active=false;
@@ -20,7 +25,9 @@ export class GameUI {
     private nativeGeneration=0;
     private buyMenu?:string;
     private hintTimer?:ReturnType<typeof setTimeout>;
+    private readonly game=el("game");
     private readonly canvas=el<HTMLCanvasElement>("canvas");
+    private readonly keyboard=(navigator as Navigator & {keyboard?: KeyboardLock}).keyboard;
     private readonly pointer:PointerCapture;
     private readonly teams:TeamSelection;
     private readonly shop:QuickBuy;
@@ -48,7 +55,15 @@ export class GameUI {
         el("result-damage").onclick=()=>this.show("damage");
         el("scores-back").onclick=()=>this.pause();
         el("buy-menu").onclick=()=>{el("input-status").textContent="需在购买区且购买时间内才能购买装备。";this.command("buy");};
-        el("fullscreen").onclick=()=>void el("game").requestFullscreen().catch(()=>{el("input-status").textContent="当前浏览器未进入全屏，可继续游戏。";});
+        el("fullscreen").onclick=()=>void this.toggleFullscreen();
+        this.game.addEventListener("fullscreenchange",()=>{
+            const fullscreen=document.fullscreenElement===this.game;
+            el("fullscreen").textContent=fullscreen?"退出全屏":"全屏防误触";
+            if(!fullscreen){
+                this.keyboard?.unlock();
+                el("input-status").textContent="已退出全屏。窗口内可用 V 蹲下。";
+            }
+        });
         el("leave").onclick=leave;
         window.addEventListener("keydown",event=>this.keydown(event),true);
         for(const type of ["keyup","keypress"]){window.addEventListener(type,event=>{
@@ -197,8 +212,41 @@ export class GameUI {
         buttons.forEach(button=>button.disabled=true);
         try{await this.pointer.enter();}finally{buttons.forEach(button=>button.disabled=false);}
     }
+    private async toggleFullscreen(): Promise<void> {
+        const button=el<HTMLButtonElement>("fullscreen");
+        const status=el("input-status");
+        button.disabled=true;
+        try {
+            if (document.fullscreenElement===this.game) {
+                await document.exitFullscreen();
+                return;
+            }
+            await this.game.requestFullscreen();
+            if (typeof this.keyboard?.lock!=="function") {
+                status.textContent="当前浏览器无法接管快捷键，可用 V 蹲下。";
+                return;
+            }
+            try {
+                // Capture only the conflicting keys. Escape remains available
+                // to the browser and the existing in-game menu.
+                await this.keyboard.lock(fullscreenGameKeys);
+                if (document.fullscreenElement===this.game) {
+                    status.textContent="全屏按键保护已开启，可用 Ctrl + W 蹲走。";
+                } else {
+                    this.keyboard.unlock();
+                }
+            } catch {
+                if (document.fullscreenElement===this.game) status.textContent="未能接管快捷键，可用 V 蹲下。";
+            }
+        } catch {
+            status.textContent="无法切换全屏，可用 V 蹲下。";
+        } finally {
+            button.disabled=false;
+        }
+    }
     private keydown(event:KeyboardEvent):void {
         if(!this.active)return;
+        if(!this.isSettled&&protectGameShortcut(event,this.panel==="playing"))return;
         if(el<HTMLDialogElement>("release-dialog").open){event.stopImmediatePropagation();return;}
         const key=event.key.toLowerCase();
         const editing=event.target instanceof Element&&!!event.target.closest("input,textarea,select");

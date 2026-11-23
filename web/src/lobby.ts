@@ -1,4 +1,5 @@
 import {BotControls,botDifficulties,botTeamSummary,type BotSettings} from "./bot-controls";
+import {isPartyMode} from "./party-mode";
 export interface RoomMember {id:string;nickname:string;joinedAt:string}
 export interface Room {id:string;name:string;map:string;mode?:string;maxPlayers:number;phase:"waiting"|"starting"|"playing"|"failed";hostId:string;members:RoomMember[];error?:string;bots?:BotSettings;botCount?:number;botsError?:string}
 export interface RoomSession {room:Room;memberId:string;token:string}
@@ -65,7 +66,10 @@ export class Lobby {
         this.setMaps("create-map",mode);
         const capacity=el<HTMLSelectElement>("create-capacity");
         capacity.disabled=mode==="duel";
+        const party=isPartyMode(mode);
+        for(const option of capacity.options)option.disabled=party&&Number(option.value)>10;
         if(capacity.disabled)capacity.value="2";
+        else if(party&&Number(capacity.value)>10)capacity.value="10";
     }
     private mapLabel(room:Room):string {return this.maps.get(room.map)??room.map;}
     private modeLabel(room:Room):string {return this.modes.get(room.mode??classic.id)?.name??classic.name;}
@@ -143,6 +147,7 @@ export class Lobby {
         for(const member of room.members){const row=text("li","","room-member");row.append(text("span",member.nickname),text("small",member.id===room.hostId?"房主":member.id===this.session?.memberId?"你":"玩家"));members.append(row);}
         if(room.bots?.count){const row=text("li","","room-member room-bot-member");row.append(text("span",`人机 × ${room.bots.count}`),text("small",`${botDifficulties[room.bots.difficulty]} · ${botTeamSummary(room.bots)}`));members.append(row);}
         const host=room.hostId===this.session?.memberId;
+        el("room-bots").closest<HTMLElement>("section")!.hidden=isPartyMode(room.mode);
         for(const controls of this.botControls)controls.update(room,host);
         const button=el<HTMLButtonElement>("start-room");button.hidden=!host||room.phase==="playing";button.disabled=room.phase==="starting";button.textContent=room.phase==="starting"?"正在准备服务端…":room.phase==="failed"?"重新开局":"开始对局";
         el("room-note").textContent=room.error||(room.phase==="playing"?"对局已开始，正在进入战场。其他玩家仍可中途加入。":room.phase==="starting"?"正在准备地图，房间里的玩家将自动进入游戏。":host?"朋友加入后点击开始；也可以先开局，让朋友中途加入。":"等待房主开始对局，开始后会自动进入游戏。");

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 )
 
@@ -57,7 +59,22 @@ const (
 	classicMode    = "classic"
 	duelMode       = "duel"
 	deathmatchMode = "deathmatch"
+	infectionMode  = "infection"
+	hideMode       = "hide"
+	partyCapacity  = 10
 )
+
+func isPartyMode(mode string) bool { return mode == infectionMode || mode == hideMode }
+
+func supportsPartyModes(gameDir string) bool {
+	extension := ".so"
+	if runtime.GOOS == "darwin" {
+		extension = ".dylib"
+	}
+	path := filepath.Join(gameDir, "cstrike", "dlls", "cs_"+runtime.GOARCH+extension)
+	data, err := os.ReadFile(path)
+	return err == nil && bytes.Contains(data, []byte("winlife_party_reset\x00"))
+}
 
 type modeOption struct {
 	ID          string `json:"id"`
@@ -69,11 +86,16 @@ var modeCatalog = []modeOption{
 	{classicMode, "经典对局", "每半场 15 小局，先赢 16 局。"},
 	{duelMode, "1v1 单挑", "每边一人，出生装备相同，先赢 7 局。"},
 	{deathmatchMode, "团队死斗", "阵亡约 2 秒后复活，可随时购买。先到 30 击杀获胜，限时 8 分钟。"},
+	{infectionMode, "生化感染", "2–10 名真人。随机一人先感染，准备 6 秒。人类守住 100 秒或消灭感染者即可获胜。"},
+	{hideMode, "躲猫猫", "2–10 名真人。T 躲藏，CT 追捕。先藏 12 秒，追捕 75 秒，两局交换角色。"},
 }
 
-func installedModes(maps []mapOption) []modeOption {
+func installedModes(maps []mapOption, party bool) []modeOption {
 	var modes []modeOption
 	for _, mode := range modeCatalog {
+		if isPartyMode(mode.ID) && !party {
+			continue
+		}
 		if len(modeMaps(maps, mode.ID)) > 0 {
 			modes = append(modes, mode)
 		}
@@ -82,6 +104,9 @@ func installedModes(maps []mapOption) []modeOption {
 }
 
 func modeConfig(mode string) string {
+	const partyRules = "mp_round_infinite 1\nmp_roundtime 0\nmp_freezetime 0\nmp_roundrespawn_time -1\n" +
+		"mp_give_player_c4 0\nmp_weapondrop 0\nmp_ammodrop 0\nmp_autoteambalance 0\n" +
+		"mp_t_default_weapons_secondary \"\"\nmp_ct_default_weapons_secondary \"\"\n"
 	switch mode {
 	case duelMode:
 		return "mp_limitteams 1\nmp_roundtime 1\nmp_roundover 1\nmp_free_armor 2\n" +
@@ -92,6 +117,10 @@ func modeConfig(mode string) string {
 			"mp_forcerespawn 2\nmp_respawn_immunitytime 2\nmp_give_player_c4 0\n" +
 			"mp_buy_anywhere 1\nmp_buytime -1\nmp_startmoney 16000\nmp_free_armor 2\n" +
 			"mp_t_default_weapons_primary ak47\nmp_ct_default_weapons_primary m4a1\n"
+	case infectionMode:
+		return partyRules + "winlife_party_mode 1\n"
+	case hideMode:
+		return partyRules + "winlife_party_mode 2\n"
 	}
 	return ""
 }

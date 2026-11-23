@@ -126,6 +126,11 @@ func (m *roomLobby) botsAPI(w http.ResponseWriter, room *gameRoom, member *roomM
 		apiError(w, 403, "只有房主可以调整人机")
 		return
 	}
+	if isPartyMode(room.Mode) {
+		m.mu.Unlock()
+		apiError(w, 400, "该模式使用真人对局")
+		return
+	}
 	if room.Phase == "starting" {
 		m.mu.Unlock()
 		apiError(w, 409, "正在开局，请进入游戏后再调整人机")

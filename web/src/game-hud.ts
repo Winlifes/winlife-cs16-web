@@ -1,3 +1,5 @@
+import {isPartyMode,partyRole} from "./party-mode";
+
 export interface TeammateLabel {id:number;name:string;x:number;y:number;}
 const names=new Map<number,HTMLElement>();
 export function renderTeammates(labels:TeammateLabel[]):void {
@@ -14,7 +16,7 @@ export function renderTeammates(labels:TeammateLabel[]):void {
 }
 
 export interface MatchView {id?:string;mode?:string;phase:string;half:number;round:number;scoreA:number;scoreB:number;swapped:boolean;halfRounds:number;target:number;endsAt?:number;winner?:string;}
-export function renderMatch(state:MatchView):void {
+export function renderMatch(state:MatchView,team?:number):void {
     const el=(id:string)=>document.getElementById(id)!;
     el("match-hud").hidden=false;
     el("match-hud").dataset.phase=state.phase;
@@ -28,12 +30,26 @@ export function renderMatch(state:MatchView):void {
     if(deathmatch&&state.phase==="live")status=`团队死斗 · 先到 ${state.target} 击杀 · ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,"0")}`;
     if(state.phase==="starting")status="对局即将开始";
     if(state.phase==="halftime")status=`半场结束 · 自动交换 T / CT · ${seconds} 秒后继续`;
+    if(isPartyMode(state.mode)){
+        el("match-a").textContent=partyRole(state.mode,state.swapped?2:1);
+        el("match-b").textContent=partyRole(state.mode,state.swapped?1:2);
+        status=partyStatus(state,team,seconds);
+    }
     if(state.phase==="finished")status=`${matchResultTitle(state)} · 对局结束`;
     el("match-status").textContent=status;
 }
 
+function partyStatus(state:MatchView,team:number|undefined,seconds:number):string {
+    if(state.phase==="warmup"||state.phase==="starting")return state.mode==="hide"?"等待躲藏者和追捕者入队":"等待至少两名玩家入队";
+    if(state.phase==="between")return `${seconds} 秒后交换躲藏与追捕角色`;
+    const role=partyRole(state.mode,team);
+    if(state.phase==="preparing")return `${role} · ${state.mode==="hide"?"躲藏时间":"准备时间"} ${seconds} 秒`;
+    return `${role} · 剩余 ${seconds} 秒${state.mode==="hide"?` · 第 ${state.round} / 2 局`:""}`;
+}
+
 export function matchResultTitle(state:MatchView):string {
     if(state.winner==="draw")return "双方平局";
+    if(state.mode==="infection")return `${partyRole(state.mode,state.winner==="A"?1:2)}获胜`;
     if(state.mode==="deathmatch")return `${state.winner==="A"?"恐怖分子 T":"反恐精英 CT"} 获胜`;
     return `队伍 ${state.winner} 获胜`;
 }

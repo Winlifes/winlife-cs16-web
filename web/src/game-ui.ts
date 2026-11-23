@@ -6,6 +6,7 @@ import {buyKeyAction} from "./buy-keys";
 import {QuickBuy} from "./quick-buy";
 import {classicBuyCategory,type BuyContext} from "./buy-catalog";
 import {fullscreenGameKeys, protectGameShortcut} from "./game-shortcuts";
+import {isPartyMode} from "./party-mode";
 
 type Panel="team"|"ready"|"pause"|"tools"|"bots"|"mouse"|"damage"|"shop"|"native"|"scores"|"unlocked"|"playing"|"result";
 const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -17,6 +18,8 @@ interface KeyboardLock {
 
 export class GameUI {
     private active=false;
+    private mode?:string;
+    private partyTeamLocked=false;
     private isSettled=false;
     private panel:Panel="team";
     private hasTeam=false;
@@ -97,6 +100,21 @@ export class GameUI {
         else {el("ready-status").textContent="新的一场已开始，点击进入战场。";this.show(this.hasTeam?"ready":"team");}
     }
     begin():void {this.active=true;this.resetConnection();}
+    setMode(mode?:string):void {
+        this.mode=mode;
+        const party=isPartyMode(mode);
+        el("bots-toggle").hidden=party;
+        el("buy-menu").hidden=party;
+        el("party-team-rule").hidden=!party;
+        this.battlePhase("warmup");
+    }
+    battlePhase(phase:string):void {
+        if(!isPartyMode(this.mode))return;
+        this.partyTeamLocked=["preparing","live","between","finished"].includes(phase);
+        const description=this.mode==="hide"?"T 躲藏，CT 追捕。":"选队后等待开局，服务端会随机选出首个感染者。";
+        el("party-team-rule").textContent=this.partyTeamLocked?"本局进行中，新加入的玩家可先旁观。":description;
+        this.updateTeamButtons();
+    }
     reconnecting():void {if(this.active)this.resetConnection();}
     receiveLog(line:string):void {
         // WASM print callbacks run inside the engine. Do not re-enter its
@@ -184,10 +202,13 @@ export class GameUI {
         el("team-status").textContent="正在请求队伍菜单…";this.command("chooseteam");
     }
     private updateTeamButtons():void {
-        document.querySelectorAll<HTMLButtonElement>("[data-team]").forEach(button=>button.disabled=this.selecting||!this.teamReady);
+        document.querySelectorAll<HTMLButtonElement>("[data-team]").forEach(button=>button.disabled=this.selecting||!this.teamReady||!this.canPickTeam(button.dataset.team!));
+    }
+    private canPickTeam(team:string):boolean {
+        return !this.partyTeamLocked||team==="6"||team===String(this.ownTeam());
     }
     private async choose(team:string):Promise<void> {
-        if(this.selecting||!this.teamReady)return;
+        if(this.selecting||!this.teamReady||!this.canPickTeam(team))return;
         const nativeTeam=this.ownTeam();
         const currentTeam=nativeTeam===1||nativeTeam===2?String(nativeTeam):this.currentTeam;
         if(this.hasTeam&&currentTeam===team&&team!=="5"){
@@ -268,6 +289,9 @@ export class GameUI {
         if(el<HTMLDialogElement>("release-dialog").open){event.stopImmediatePropagation();return;}
         const key=event.key.toLowerCase();
         const editing=event.target instanceof Element&&!!event.target.closest("input,textarea,select");
+        if(this.panel==="playing"&&!editing&&key==="b"&&isPartyMode(this.mode)){
+            event.preventDefault();event.stopImmediatePropagation();return;
+        }
         if(key==="escape"){
             event.preventDefault();event.stopImmediatePropagation();
             // Holding Escape must dismiss a menu once, not reopen pause on

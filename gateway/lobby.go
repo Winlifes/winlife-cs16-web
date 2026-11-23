@@ -91,6 +91,7 @@ type roomLobby struct {
 	mu                               sync.Mutex
 	rooms                            map[string]*gameRoom
 	maps                             []mapOption
+	party                            bool
 	slots                            map[int]bool
 	maxRooms                         int
 	root, gameDir, executable, token string
@@ -227,6 +228,10 @@ func (m *roomLobby) roomsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if b.Mode != classicMode && modeConfig(b.Mode) == "" {
 		apiError(w, 400, "请选择可用的游戏模式")
+		return
+	}
+	if isPartyMode(b.Mode) && (!m.party || b.MaxPlayers > partyCapacity) {
+		apiError(w, 400, "该模式需要新版游戏服务端，人数上限为 10 人")
 		return
 	}
 	if b.Mode == duelMode {
@@ -575,7 +580,13 @@ func (m *roomLobby) spawnRoom(room *gameRoom) (*roomProcess, error) {
 	if err := cloneRoomGame(m.gameDir, game, m.root); err != nil {
 		return nil, err
 	}
+	m.mu.Lock()
+	settings, players := room.Bots, len(room.members)
+	m.mu.Unlock()
 	mode := modeConfig(room.Mode)
+	if isPartyMode(room.Mode) {
+		mode += fmt.Sprintf("winlife_party_start_players %d\n", max(2, players))
+	}
 	if mode != "" {
 		if err := os.WriteFile(filepath.Join(game, "cstrike", "winlife_mode.cfg"), []byte(mode), 0600); err != nil {
 			return nil, err
@@ -601,9 +612,6 @@ func (m *roomLobby) spawnRoom(room *gameRoom) (*roomProcess, error) {
 			return nil, err
 		}
 	}
-	m.mu.Lock()
-	settings := room.Bots
-	m.mu.Unlock()
 	if err := writeBotConfig(game, settings); err != nil {
 		return nil, err
 	}
@@ -797,7 +805,7 @@ func (m *roomLobby) handler() http.Handler {
 	mux.HandleFunc("/rooms", m.roomsAPI)
 	mux.HandleFunc("/rooms/", m.roomAPI)
 	mux.HandleFunc("/client-config", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"transport": env("CS16_CLIENT_TRANSPORT", "webrtc"), "lobby": true, "maps": m.maps, "modes": installedModes(m.maps)})
+		writeJSON(w, map[string]any{"transport": env("CS16_CLIENT_TRANSPORT", "webrtc"), "lobby": true, "maps": m.maps, "modes": installedModes(m.maps, m.party)})
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()
@@ -859,6 +867,7 @@ func runLobby() {
 	}
 	m := &roomLobby{rooms: map[string]*gameRoom{}, slots: map[int]bool{}, maxRooms: max, root: root, gameDir: game, executable: executable, token: token, http: &http.Client{Timeout: time.Second}}
 	m.maps = installedMaps(game, env("CS16_PUBLIC", "./public"))
+	m.party = supportsPartyModes(game)
 	m.spawn = m.spawnRoom
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()

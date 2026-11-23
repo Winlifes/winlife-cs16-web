@@ -64,7 +64,7 @@ async function refreshHealth() {
 }
 void refreshHealth();
 setInterval(() => void refreshHealth(), 3000);
-setInterval(()=>{if(joined&&roomSession)void fetch(roomPath("match"),{cache:"no-store"}).then(r=>r.ok?r.json():undefined).then(state=>{if(state){matchPhase=state.phase;renderMatch(state);combatBoard.match(state);releases.contextChanged();}}).catch(()=>{});},1000);
+setInterval(()=>{if(joined&&roomSession)void fetch(roomPath("match"),{cache:"no-store"}).then(r=>r.ok?r.json():undefined).then(state=>{if(state){matchPhase=state.phase;gameUI.battlePhase(state.phase);renderMatch(state,telemetry.team());combatBoard.match(state);releases.contextChanged();}}).catch(()=>{});},1000);
 
 interface AssetsManifest {
     browserArchive:{sha256:string;url?:string};
@@ -123,6 +123,7 @@ async function extraMaps(manifest:AssetsManifest):Promise<JSZip|undefined> {
 async function enterRoom(session:RoomSession) {
     if (joined) return;
     roomSession=session;
+    gameUI.setMode(session.room.mode);
     const name = session.room.members.find(p=>p.id===session.memberId)!.nickname;
     if (!name) {nickname.focus(); return;}
     joined = true;

@@ -1,0 +1,414 @@
+diff --git a/regamedll/CMakeLists.txt b/regamedll/CMakeLists.txt
+index 9abe12d..987312a 100644
+--- a/regamedll/CMakeLists.txt
++++ b/regamedll/CMakeLists.txt
+@@ -265,6 +265,7 @@ set(GAMEDLL_SRCS
+ 	"dlls/weapons.cpp"
+ 	"dlls/winlife_combat.cpp"
+ 	"dlls/winlife_buy.cpp"
++	"dlls/winlife_party.cpp"
+ 	"dlls/weapontype.cpp"
+ 	"dlls/world.cpp"
+ 	"dlls/API/CAPI_Impl.cpp"
+diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
+index ce6f27c..1f9380c 100644
+--- a/regamedll/dlls/client.cpp
++++ b/regamedll/dlls/client.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "winlife_party.h"
+ #include "winlife_buy.h"
+ 
+ int gmsgWeapPickup = 0;
+@@ -1817,6 +1818,7 @@ LINK_HOOK_CHAIN(BOOL, HandleMenu_ChooseTeam, (CBasePlayer *pPlayer, int slot), p
+ // can be closed...false if the menu should be displayed again
+ BOOL EXT_FUNC __API_HOOK(HandleMenu_ChooseTeam)(CBasePlayer *pPlayer, int slot)
+ {
++	if (!WinlifePartyAllowTeam(pPlayer, slot)) return FALSE;
+ 	// If this player is a VIP, don't allow him to switch teams/appearances unless the following conditions are met :
+ 	// a) There is another TEAM_CT player who is in the queue to be a VIP
+ 	// b) This player is dead
+diff --git a/regamedll/dlls/game.cpp b/regamedll/dlls/game.cpp
+index 7f3e810..67b1d74 100644
+--- a/regamedll/dlls/game.cpp
++++ b/regamedll/dlls/game.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "winlife_party.h"
+ 
+ cvar_t *g_pskill          = nullptr;
+ cvar_t *g_psv_gravity     = nullptr;
+@@ -261,6 +262,7 @@ SpewRetval_t GameDLL_SpewHandler(SpewType_t spewType, int level, const char *pMs
+ 
+ void EXT_FUNC GameDLLInit()
+ {
++	WinlifePartyRegister();
+ 	// By default, direct dbg reporting...
+ 	SpewOutputFunc(GameDLL_SpewHandler);
+ 
+diff --git a/regamedll/dlls/multiplay_gamerules.cpp b/regamedll/dlls/multiplay_gamerules.cpp
+index 3c7176e..0cc169c 100644
+--- a/regamedll/dlls/multiplay_gamerules.cpp
++++ b/regamedll/dlls/multiplay_gamerules.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "winlife_party.h"
+ 
+ CCStrikeGameMgrHelper g_GameMgrHelper;
+ CHalfLifeMultiplay *g_pMPGameRules = nullptr;
+@@ -2398,6 +2399,7 @@ LINK_HOOK_CLASS_VOID_CUSTOM_CHAIN2(CHalfLifeMultiplay, CSGameRules, Think)
+ 
+ void EXT_FUNC CHalfLifeMultiplay::__API_HOOK(Think)()
+ {
++	WinlifePartyFrame();
+ 	MonitorTutorStatus();
+ 	m_VoiceGameMgr.Update(gpGlobals->frametime);
+ 
+@@ -4259,7 +4261,7 @@ LINK_HOOK_CLASS_CUSTOM_CHAIN(BOOL, CHalfLifeMultiplay, CSGameRules, CanHavePlaye
+ // Returns FALSE if the player is not allowed to pick up this weapon
+ BOOL EXT_FUNC CHalfLifeMultiplay::__API_HOOK(CanHavePlayerItem)(CBasePlayer *pPlayer, CBasePlayerItem *pItem)
+ {
+-	return CGameRules::CanHavePlayerItem(pPlayer, pItem);
++	return WinlifePartyAllowItem(pPlayer, pItem->m_iId) && CGameRules::CanHavePlayerItem(pPlayer, pItem);
+ }
+ 
+ BOOL CHalfLifeMultiplay::CanHaveItem(CBasePlayer *pPlayer, CItem *pItem)
+@@ -5092,6 +5094,7 @@ void EXT_FUNC CHalfLifeMultiplay::__API_HOOK(ClientUserInfoChanged)(CBasePlayer
+ 
+ void CHalfLifeMultiplay::ServerActivate()
+ {
++	WinlifePartyMapReset();
+ 	// Check to see if there's a mapping info paramater entity
+ 	if (g_pMapInfo)
+ 		g_pMapInfo->CheckMapInfo();
+diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
+index 580bc99..38e1401 100644
+--- a/regamedll/dlls/player.cpp
++++ b/regamedll/dlls/player.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "winlife_party.h"
+ #include "winlife_combat.h"
+ #include "winlife_buy.h"
+ 
+@@ -911,6 +912,7 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
+ // etc are implemented with subsequent calls to TakeDamage using DMG_GENERIC.
+ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entvars_t *pevAttacker, FloatRef flDamage, int bitsDamageType)
+ {
++	if (WinlifePartyIntercept(this, pevInflictor, pevAttacker, flDamage)) return FALSE;
+ 	WinlifeDamageScope winlifeDamage(this, pevInflictor, pevAttacker, bitsDamageType);
+ 	BOOL bTookDamage;
+ 	float flRatio = ARMOR_RATIO;
+@@ -4655,6 +4657,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(AddPointsToTeam)(int score, BOOL bAllowNeg
+ 
+ bool CBasePlayer::CanPlayerBuy(bool display)
+ {
++	if (WinlifePartyEnabled()) return false;
+ 	if (!g_pGameRules->IsMultiplayer())
+ 	{
+ 		return CHalfLifeTraining::PlayerCanBuy(this);
+@@ -4731,6 +4734,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, PreThink)
+ 
+ void EXT_FUNC CBasePlayer::__API_HOOK(PreThink)()
+ {
++	WinlifePartyInput(this);
+ 	// These buttons have changed this frame
+ 	int buttonsChanged = (m_afButtonLast ^ pev->button);
+ 
+@@ -8112,6 +8116,11 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, ResetMaxSpeed)
+ 
+ void EXT_FUNC CBasePlayer::__API_HOOK(ResetMaxSpeed)()
+ {
++	if (WinlifePartyFrozen(this))
++	{
++		pev->maxspeed = 1;
++		return;
++	}
+ 	float speed;
+ 
+ 	if (GetObserverMode() != OBS_NONE)
+diff --git a/regamedll/dlls/winlife_party.cpp b/regamedll/dlls/winlife_party.cpp
+new file mode 100644
+index 0000000..cf8c8b2
+--- /dev/null
++++ b/regamedll/dlls/winlife_party.cpp
+@@ -0,0 +1,258 @@
++#include "precompiled.h"
++#include "winlife_party.h"
++#include <vector>
++
++namespace {
++enum class Mode { Off, Infection, Hide };
++enum class Phase { Waiting, Prep, Live, Between, Finished };
++
++cvar_t partyMode = { "winlife_party_mode", "0", FCVAR_SERVER, 0, nullptr };
++cvar_t startPlayers = { "winlife_party_start_players", "2", FCVAR_SERVER, 0, nullptr };
++Phase phase = Phase::Waiting;
++int roundNumber = 1;
++float deadline = 0;
++float nextCheck = 0;
++float joinDeadline = 0;
++bool initialRound = true;
++
++Mode mode()
++{
++    if (partyMode.value == 1) return Mode::Infection;
++    if (partyMode.value == 2) return Mode::Hide;
++    return Mode::Off;
++}
++
++bool playing(CBasePlayer *player)
++{
++    return player && !player->IsDormant() && player->m_iJoiningState == JOINED &&
++        (player->m_iTeam == CT || player->m_iTeam == TERRORIST);
++}
++
++std::vector<CBasePlayer *> players()
++{
++    std::vector<CBasePlayer *> result;
++    for (int i = 1; i <= gpGlobals->maxClients; ++i)
++    {
++        CBasePlayer *player = UTIL_PlayerByIndex(i);
++        if (playing(player)) result.push_back(player);
++    }
++    return result;
++}
++
++void report(const char *stage, int seconds = 0, int winner = 0)
++{
++    UTIL_LogPrintf("WINLIFE_PARTY 1 %s %d %d %d\n", stage, roundNumber, seconds, winner);
++}
++
++void releasePlayers(const std::vector<CBasePlayer *> &list)
++{
++    for (CBasePlayer *player : list)
++    {
++        player->ResetMaxSpeed();
++        if (mode() == Mode::Hide && player->m_iTeam == CT)
++            UTIL_ScreenFade(player, Vector(0, 0, 0), 0.1f, 0, 0, FFADE_IN);
++    }
++}
++
++void equip(CBasePlayer *player)
++{
++    player->RemoveAllItems(FALSE);
++    player->pev->armorvalue = 0;
++    player->m_iKevlar = ARMOR_NONE;
++    player->GiveNamedItem("weapon_knife");
++    if (mode() == Mode::Infection && player->m_iTeam == CT)
++    {
++        player->GiveNamedItem("weapon_mp5navy");
++        player->GiveAmmo(90, "9mm", 120);
++    }
++    const float health = mode() == Mode::Infection && player->m_iTeam == TERRORIST ? 220.0f : 100.0f;
++    player->pev->max_health = health;
++    player->pev->health = health;
++    player->ResetMaxSpeed();
++}
++
++void beginRound(const std::vector<CBasePlayer *> &list)
++{
++    const bool infection = mode() == Mode::Infection;
++    CBasePlayer *seed = infection ? list[RANDOM_LONG(0, static_cast<int>(list.size()) - 1)] : nullptr;
++    const int prepTime = infection ? 6 : 12;
++    initialRound = false;
++    phase = Phase::Prep;
++    deadline = gpGlobals->time + prepTime;
++    for (CBasePlayer *player : list)
++    {
++        if (infection)
++        {
++            const auto team = player == seed ? TERRORIST : CT;
++            if (player->m_iTeam != team) player->SwitchTeam();
++        }
++        else if (roundNumber == 2)
++            player->SwitchTeam();
++        player->RemoveAllItems(FALSE);
++        player->m_bNotKilled = false;
++        player->RoundRespawn();
++        equip(player);
++        if (mode() == Mode::Hide && player->m_iTeam == CT)
++            UTIL_ScreenFade(player, Vector(0, 0, 0), 0.1f, prepTime, 255, FFADE_OUT | FFADE_STAYOUT);
++    }
++    report("prep", prepTime);
++}
++
++void finishRound(int winner)
++{
++    UTIL_LogPrintf("World triggered \"Round_End\"\n");
++    if (mode() == Mode::Hide && roundNumber == 1)
++    {
++        phase = Phase::Between;
++        deadline = gpGlobals->time + 4;
++        report("between", 4, winner);
++    }
++    else
++    {
++        phase = Phase::Finished;
++        report("finish", 0, winner);
++    }
++}
++
++void clearRound()
++{
++    phase = Phase::Waiting;
++    roundNumber = 1;
++    deadline = 0;
++    nextCheck = 0;
++    joinDeadline = 0;
++}
++
++void resetMatch()
++{
++    if (!WinlifePartyEnabled()) return;
++    clearRound();
++    releasePlayers(players());
++    report("wait");
++}
++}
++
++void WinlifePartyRegister()
++{
++    CVAR_REGISTER(&partyMode);
++    CVAR_REGISTER(&startPlayers);
++    ADD_SERVER_COMMAND("winlife_party_reset", resetMatch);
++}
++
++void WinlifePartyMapReset()
++{
++    clearRound();
++    initialRound = true;
++}
++
++bool WinlifePartyEnabled() { return mode() != Mode::Off; }
++
++bool WinlifePartyFrozen(CBasePlayer *player)
++{
++    if (!WinlifePartyEnabled() || phase != Phase::Prep || !playing(player)) return false;
++    return player->m_iTeam == (mode() == Mode::Hide ? CT : TERRORIST);
++}
++
++bool WinlifePartyAllowTeam(CBasePlayer *player, int slot)
++{
++    if (!WinlifePartyEnabled() || phase == Phase::Waiting || slot == MENU_SLOT_TEAM_SPECT) return true;
++    return playing(player) && slot == player->m_iTeam;
++}
++
++bool WinlifePartyAllowItem(CBasePlayer *player, int weapon)
++{
++    return !WinlifePartyEnabled() || weapon == WEAPON_KNIFE ||
++        (mode() == Mode::Infection && player->m_iTeam == CT && weapon == WEAPON_MP5N);
++}
++
++void WinlifePartyInput(CBasePlayer *player)
++{
++    if (!WinlifePartyEnabled() || !playing(player)) return;
++    if (phase != Phase::Live || (mode() == Mode::Hide && player->m_iTeam == TERRORIST))
++        player->pev->button &= ~(IN_ATTACK | IN_ATTACK2);
++    if (WinlifePartyFrozen(player)) player->pev->velocity = g_vecZero;
++}
++
++bool WinlifePartyIntercept(CBasePlayer *victim, entvars_t *inflictor, entvars_t *attacker, float &damage)
++{
++    if (!WinlifePartyEnabled() || !playing(victim)) return false;
++    if (phase != Phase::Live) return true;
++    CBaseEntity *entity = attacker ? CBaseEntity::Instance(attacker) : nullptr;
++    if (!entity || !entity->IsPlayer() || entity == victim) return false;
++    auto *source = static_cast<CBasePlayer *>(entity);
++    if (!playing(source) || source->m_iTeam == victim->m_iTeam) return true;
++    const bool knife = inflictor == attacker && source->m_pActiveItem && source->m_pActiveItem->m_iId == WEAPON_KNIFE;
++    if (mode() == Mode::Hide)
++    {
++        if (source->m_iTeam != CT || !knife || damage <= 0) return true;
++        damage = victim->pev->health + 100;
++        return false;
++    }
++    if (source->m_iTeam != TERRORIST) return false;
++    if (knife && damage > 0 && victim->IsAlive())
++    {
++        victim->SwitchTeam();
++        equip(victim);
++        UTIL_LogPrintf("WINLIFE_PARTY_CONVERT 1 %d %d\n", GETPLAYERUSERID(source->edict()), GETPLAYERUSERID(victim->edict()));
++    }
++    return true;
++}
++
++void WinlifePartyFrame()
++{
++    if (!WinlifePartyEnabled() || phase == Phase::Finished || gpGlobals->time < nextCheck) return;
++    nextCheck = gpGlobals->time + 0.1f;
++    auto list = players();
++    if (list.size() < 2)
++    {
++        if (phase != Phase::Waiting) resetMatch();
++        return;
++    }
++    if (phase == Phase::Waiting)
++    {
++        bool hasT = false, hasCT = false;
++        for (CBasePlayer *player : list)
++        {
++            hasT = hasT || player->m_iTeam == TERRORIST;
++            hasCT = hasCT || player->m_iTeam == CT;
++        }
++        if (mode() == Mode::Hide && !(hasT && hasCT)) return;
++        // Lobby members may finish downloading the browser assets at different
++        // times. Give them time to choose a side before locking the first round.
++        if (initialRound && static_cast<int>(list.size()) < startPlayers.value)
++        {
++            if (joinDeadline == 0) joinDeadline = gpGlobals->time + 25;
++            if (gpGlobals->time < joinDeadline) return;
++        }
++        beginRound(list);
++        return;
++    }
++    if (phase == Phase::Between && gpGlobals->time >= deadline)
++    {
++        ++roundNumber;
++        beginRound(list);
++        return;
++    }
++    if (phase == Phase::Prep && gpGlobals->time >= deadline)
++    {
++        const int seconds = mode() == Mode::Infection ? 100 : 75;
++        phase = Phase::Live;
++        deadline = gpGlobals->time + seconds;
++        releasePlayers(list);
++        UTIL_LogPrintf("World triggered \"Round_Start\"\n");
++        report("live", seconds);
++        return;
++    }
++    if (phase != Phase::Live) return;
++    bool liveT = false, liveCT = false;
++    for (CBasePlayer *player : list)
++    {
++        if (!player->IsAlive()) continue;
++        liveT = liveT || player->m_iTeam == TERRORIST;
++        liveCT = liveCT || player->m_iTeam == CT;
++    }
++    if (!liveT || !liveCT)
++        finishRound(liveT ? TERRORIST : liveCT ? CT : 0);
++    else if (gpGlobals->time >= deadline)
++        finishRound(mode() == Mode::Infection ? CT : TERRORIST);
++}
+diff --git a/regamedll/dlls/winlife_party.h b/regamedll/dlls/winlife_party.h
+new file mode 100644
+index 0000000..2feecb9
+--- /dev/null
++++ b/regamedll/dlls/winlife_party.h
+@@ -0,0 +1,13 @@
++#pragma once
++
++class CBasePlayer;
++
++void WinlifePartyRegister();
++void WinlifePartyMapReset();
++void WinlifePartyFrame();
++bool WinlifePartyEnabled();
++bool WinlifePartyFrozen(CBasePlayer *player);
++bool WinlifePartyAllowTeam(CBasePlayer *player, int slot);
++bool WinlifePartyAllowItem(CBasePlayer *player, int weapon);
++void WinlifePartyInput(CBasePlayer *player);
++bool WinlifePartyIntercept(CBasePlayer *victim, entvars_t *inflictor, entvars_t *attacker, float &damage);

@@ -53,6 +53,10 @@ func newRoomMatch(mode string) *matchController {
 		view = matchView{Mode: duelMode, Target: 7}
 	case deathmatchMode:
 		view = matchView{Mode: deathmatchMode, Target: deathmatchTarget}
+	case infectionMode:
+		view = matchView{Mode: infectionMode, Target: 1}
+	case hideMode:
+		view = matchView{Mode: hideMode, Target: 2}
 	default:
 		return newMatchController(15)
 	}
@@ -109,6 +113,9 @@ func (m *matchController) consume(line string, now time.Time) []string {
 			m.publish()
 		}
 	}()
+	if isPartyMode(m.view.Mode) {
+		return m.consumePartyEvent(event, now)
+	}
 	if m.view.Mode == deathmatchMode && m.view.Phase == "warmup" {
 		return m.waitForDeathmatchTeams(event)
 	}
@@ -252,6 +259,9 @@ func (m *matchController) tick(now time.Time) []string {
 }
 
 func (m *matchController) resetEngine() []string {
+	if isPartyMode(m.view.Mode) {
+		return []string{"winlife_party_reset"}
+	}
 	if m.view.Mode == deathmatchMode {
 		return []string{"exec winlife_mode.cfg", "sv_restart 1"}
 	}

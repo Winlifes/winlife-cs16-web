@@ -34,7 +34,19 @@ sdk = clone('cs16-sdk', pins['cs16-sdk'])
 for name in ['ReGameDLL_CS', 'yapb']:
     actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=sdk / '3rdparty' / name, text=True).strip()
     assert actual == pins['cs16-sdk-20261113/3rdparty/' + name]['commit'], (name, actual)
-for repo, patch in [(engine, 'xash3d-winlife.patch'), (engine, 'xash3d-gateway-endpoints.patch'), (sdk / '3rdparty/ReGameDLL_CS', 'regamedll-combat.patch'), (sdk / '3rdparty/ReGameDLL_CS', 'regamedll-buy-undo.patch'), (sdk / '3rdparty/ReGameDLL_CS', 'regamedll-party.patch'), (sdk / '3rdparty/yapb', 'yapb-apple-arm64.patch'), (sdk / '3rdparty/yapb', 'yapb-team-quota.patch')]:
+regamedll = sdk / '3rdparty/ReGameDLL_CS'
+yapb = sdk / '3rdparty/yapb'
+for repo, patch in [
+    (engine, 'xash3d-winlife.patch'),
+    (engine, 'xash3d-gateway-endpoints.patch'),
+    (regamedll, 'regamedll-combat.patch'),
+    (regamedll, 'regamedll-buy-undo.patch'),
+    (regamedll, 'regamedll-party.patch'),
+    (regamedll, 'regamedll-ffa-spawns.patch'),
+    (yapb, 'yapb-apple-arm64.patch'),
+    (yapb, 'yapb-team-quota.patch'),
+    (yapb, 'yapb-ffa-spawns.patch'),
+]:
     # The newer patch adds context beside the combat includes. Check it first
     # on prepared trees, so overlapping context does not reapply the old patch.
     if patch in ('regamedll-combat.patch', 'regamedll-buy-undo.patch') and subprocess.run(['git', 'apply', '--ignore-space-change', '--reverse', '--check', str(ROOT / 'patches/regamedll-party.patch')], cwd=repo, capture_output=True).returncode == 0:
@@ -44,7 +56,7 @@ for repo, patch in [(engine, 'xash3d-winlife.patch'), (engine, 'xash3d-gateway-e
     file = str(ROOT / 'patches' / patch)
     # Idempotent: do not overwrite a modified tree or apply a patch twice.
     apply = ['git', 'apply']
-    if patch == 'regamedll-party.patch':
+    if patch in ('regamedll-party.patch', 'regamedll-ffa-spawns.patch'):
         apply.append('--ignore-space-change')
     reverse = subprocess.run([*apply, '--reverse', '--check', file], cwd=repo, capture_output=True)
     if reverse.returncode == 0:

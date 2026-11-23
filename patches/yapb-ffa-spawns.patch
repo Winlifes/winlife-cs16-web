@@ -1,0 +1,124 @@
+diff --git a/src/engine.cpp b/src/engine.cpp
+index e1cca19..bf534d7 100644
+--- a/src/engine.cpp
++++ b/src/engine.cpp
+@@ -6,9 +6,84 @@
+ //
+ 
+ #include <yapb.h>
++#include <algorithm>
++#include <cmath>
++#include <vector>
+ 
+ namespace bot {
+ 
++namespace {
++bool individual_spawns_prepared {};
++
++void PrepareIndividualSpawns () {
++  // Use navigation points with a walkable exit and room for a standing player.
++  constexpr int kMaxSpawns = 72;
++  constexpr float kSpacing = 144.0f;
++  constexpr auto excluded = NodeFlag::Crouch | NodeFlag::Ladder | NodeFlag::Lift | NodeFlag::DoubleJump;
++  std::vector<const Path *> nodes;
++  for (const auto &path : graph.paths_) {
++    if (!(path.flags & static_cast<int32_t> (excluded))) {
++      nodes.push_back (&path);
++    }
++  }
++
++  // Sample the whole navigation graph even when its stored order follows a route.
++  for (size_t remaining = nodes.size (); remaining > 1; --remaining) {
++    const auto index = static_cast<size_t> (engfuncs.pfnRandomLong (0, static_cast<int32_t> (remaining - 1)));
++    std::swap (nodes[remaining - 1], nodes[index]);
++  }
++
++  std::vector<ystl::Vector> placed;
++  for (const auto *path : nodes) {
++    const Path *exit = nullptr;
++    for (const auto &link : path->links) {
++      if (!graph.Exists (link.index) || (link.flags & static_cast<uint16_t> (PathFlag::Jump))) {
++        continue;
++      }
++      const auto &neighbor = graph[link.index];
++      const auto delta = neighbor.origin - path->origin;
++      if (!(neighbor.flags & static_cast<int32_t> (excluded)) &&
++          std::abs (delta.z) <= 42.0f && delta.length_sq2d () >= 24.0f * 24.0f) {
++        exit = &neighbor;
++        break;
++      }
++    }
++    if (!exit) {
++      continue;
++    }
++
++    Trace::Result floor {};
++    trace.Hull (path->origin + ystl::Vector (0.0f, 0.0f, 8.0f),
++      path->origin - ystl::Vector (0.0f, 0.0f, 48.0f), TraceIgnore::Monsters, human_hull, nullptr, &floor);
++    if (floor.start_solid || floor.all_solid || floor.fraction >= 1.0f || floor.plane_normal.z < 0.7f) {
++      continue;
++    }
++
++    const auto origin = floor.end_pos + ystl::Vector (0.0f, 0.0f, 1.0f);
++    if (engfuncs.pfnPointContents (origin) != CONTENTS_EMPTY ||
++        std::any_of (placed.begin (), placed.end (), [&] (const auto &previous) {
++          return previous.distance_sq (origin) < kSpacing * kSpacing;
++        })) {
++      continue;
++    }
++
++    auto *spot = engfuncs.pfnCreateNamedEntity ("info_spawn_point");
++    if (game.IsNullEntity (spot)) {
++      break;
++    }
++    const auto direction = exit->origin - origin;
++    spot->v.angles = { 0.0f, std::atan2 (direction.y, direction.x) * 57.2957795f, 0.0f };
++    engfuncs.pfnSetOrigin (spot, origin);
++    MDLL_Spawn (spot);
++    placed.push_back (origin);
++    if (placed.size () == kMaxSpawns) {
++      break;
++    }
++  }
++  game.SendServerMessage (ystl::strings.format ("Winlife FFA spawn points: %d\n", static_cast<int> (placed.size ())));
++}
++} // namespace
++
+ void InputButtons::PressMask (int32_t mask, float seconds) {
+   if (bits_ == nullptr || mask == 0) {
+     return;
+@@ -160,6 +235,8 @@ void Game::Precache () {
+ }
+ 
+ void Game::LevelInitialize (edict_t *entities, int max) {
++  individual_spawns_prepared = false;
++
+   // this function precaches needed models and initialize class variables
+ 
+   // set the global timer function
+@@ -1325,6 +1402,13 @@ void Game::SlowFrame () {
+ }
+ 
+ void Game::UpdateFrame () {
++  // The room executes its mode config after map activation.
++  static ConVarRef mp_freeforall ("mp_freeforall");
++  if (!individual_spawns_prepared && mp_freeforall.Value () > 0.0f) {
++    individual_spawns_prepared = true;
++    PrepareIndividualSpawns ();
++  }
++
+   // update lightstyle animations
+   illum.AnimateLight ();
+ 
+diff --git a/src/entities.cpp b/src/entities.cpp
+index 7918755..16c61aa 100644
+--- a/src/entities.cpp
++++ b/src/entities.cpp
+@@ -141,6 +141,7 @@ LINK_ENTITY (info_map_parameters)
+ LINK_ENTITY (info_null)
+ LINK_ENTITY (info_player_deathmatch)
+ LINK_ENTITY (info_player_start)
++LINK_ENTITY (info_spawn_point)
+ LINK_ENTITY (info_target)
+ LINK_ENTITY (info_teleport_destination)
+ LINK_ENTITY (info_vip_start)

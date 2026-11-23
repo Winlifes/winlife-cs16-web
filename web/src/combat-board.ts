@@ -1,5 +1,5 @@
 import type {NativeRosterPlayer} from "./game-telemetry";
-import type {MatchView} from "./game-hud";
+import {matchResultTitle,type MatchView} from "./game-hud";
 
 export interface ScorePlayer {id:number;name:string;team:number;connected:boolean;kills:number;deaths:number;damage:number;}
 export interface CombatBoard {version:2;matchId:string;map:string;phase:string;players:ScorePlayer[];}
@@ -70,7 +70,7 @@ export class CombatBoardClient {
    el("result-scores").replaceChildren(scoreTable(players,this.name(),native,true));
   }
   if(state?.phase!=="finished")return;
-  el("result-title").textContent=state.winner==="draw"?"双方平局":`队伍 ${state.winner} 获胜`;
+  el("result-title").textContent=matchResultTitle(state);
   el("result-score").textContent=`${state.scoreA} : ${state.scoreB}`;
   el("result-map").textContent=`${this.board?.map??""} · 本场已结束`;
   el("result-status").textContent=this.host()?"可继续新的一场；房主退出将解散房间，所有人返回大厅。":"等待房主继续新的一场；房主退出将解散房间，你也可以自行退出。";

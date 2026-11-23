@@ -47,7 +47,7 @@ type peer struct {
 	up, down, upBytes, downBytes, drops atomic.Uint64
 }
 
-const gatewayVersion = "0.1.8"
+const gatewayVersion = "0.1.9"
 
 var (
 	api           *webrtc.API
@@ -61,7 +61,7 @@ var (
 	adminToken    string
 	engine        *exec.Cmd
 	engineAddress = env("CS16_ENGINE_ADDRESS", "127.0.0.1:27015")
-	allowedMaps   = map[string]bool{"de_dust2": true, "cs_assault": true, "cs_mansion": true, "de_inferno": true, "cs_italy": true}
+	workerMaps    []mapOption
 	votes         = map[string]string{}
 	lastMapChange time.Time
 )
@@ -474,7 +474,7 @@ func datagramHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func vote(p *peer, name string) {
-	if !allowedMaps[name] {
+	if !hasMap(workerMaps, name) {
 		return
 	}
 	peersMu.Lock()
@@ -679,6 +679,9 @@ func main() {
 	if len(adminToken) < 32 {
 		log.Fatal("admin token must have at least 32 characters")
 	}
+	mode := env("CS16_MODE", classicMode)
+	workerMaps = modeMaps(installedMaps(env("CS16_GAME_DIR", "./game"), env("CS16_PUBLIC", "./public")), mode)
+	matches = newRoomMatch(mode)
 	if err = startEngine(); err != nil {
 		log.Fatal(err)
 	}

@@ -30,7 +30,18 @@
     <footer><span>W A S D 移动　Ctrl / V 蹲下　鼠标射击　B 购买　R 换弹</span><span>Esc 游戏菜单　M 更换队伍　按住 Tab 查看双方战绩与延迟</span></footer>
     <div class="build-label">WINLIFE / COUNTER-STRIKE 1.6</div>
   </main>
-  <dialog id="create-dialog" class="classic-panel"><form id="create-form"><div class="panel-title">创建房间</div><p class="panel-note">选择地图与人数，开局后仍允许其他玩家加入。</p><label for="room-name">房间名称</label><input id="room-name" maxlength="32" required><label for="create-map">地图</label><select id="create-map"><option value="de_dust2">沙漠 II · de_dust2</option><option value="cs_assault">仓库突袭 · cs_assault</option><option value="cs_mansion">豪宅 · cs_mansion</option><option value="de_inferno">炼狱 · de_inferno</option><option value="cs_italy">意大利 · cs_italy</option></select><label for="create-capacity">房间人数上限</label><select id="create-capacity"><option value="2">2 人</option><option value="4">4 人</option><option value="8">8 人</option><option value="10" selected>10 人</option><option value="12">12 人</option><option value="16">16 人</option></select><p id="create-error" class="lobby-error" role="status"></p><div class="panel-actions"><button type="submit" class="primary">建立房间</button><button id="create-cancel" type="button">取消</button></div></form></dialog>
+  <dialog id="create-dialog" class="classic-panel">
+    <form id="create-form">
+      <div class="panel-title">创建房间</div>
+      <label for="room-name">房间名称</label><input id="room-name" maxlength="32" required>
+      <label for="create-mode">游戏模式</label><select id="create-mode" aria-describedby="create-mode-info" required></select>
+      <p id="create-mode-info" class="panel-note"></p>
+      <label for="create-map">地图</label><select id="create-map" required></select>
+      <label for="create-capacity">房间人数上限</label><select id="create-capacity"><option value="2">2 人</option><option value="4">4 人</option><option value="8">8 人</option><option value="10" selected>10 人</option><option value="12">12 人</option><option value="16">16 人</option></select>
+      <p id="create-error" class="lobby-error" role="status"></p>
+      <div class="panel-actions"><button type="submit" class="primary">建立房间</button><button id="create-cancel" type="button">取消</button></div>
+    </form>
+  </dialog>
   <section id="game" hidden>
     <p class="release-game-notice release-notice" data-update-notice hidden role="status"></p>
     <canvas id="canvas" width="1280" height="720" tabindex="0" aria-label="CS 1.6 游戏画面"></canvas>
@@ -97,7 +108,7 @@
       <section id="tools" class="classic-panel game-panel tools-panel" hidden role="dialog" aria-modal="true" aria-labelledby="tools-title">
         <div class="panel-title"><h2 id="tools-title">换图与设置</h2><span>GAME SETTINGS</span></div>
         <p class="panel-note">在线玩家过半同意后换图，两次换图至少间隔 45 秒。</p>
-        <label for="map">地图</label><select id="map"><option value="de_dust2">沙漠 II · de_dust2</option><option value="cs_assault">仓库突袭 · cs_assault</option><option value="cs_mansion">豪宅 · cs_mansion</option><option value="de_inferno">炼狱 · de_inferno</option><option value="cs_italy">意大利 · cs_italy</option></select><button id="vote">投票换图</button><p id="vote-status" class="panel-note" role="status"></p>
+        <label for="map">地图</label><select id="map"></select><button id="vote">投票换图</button><p id="vote-status" class="panel-note" role="status"></p>
         <details><summary>游戏控制台</summary><form id="console-form"><input id="command" aria-label="客户端控制台命令" placeholder="输入客户端命令" autocomplete="off"><button>执行</button></form><pre id="client-log"></pre></details>
         <button id="tools-back" class="quiet">返回游戏菜单</button>
       </section>

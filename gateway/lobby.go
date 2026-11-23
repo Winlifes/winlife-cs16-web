@@ -42,6 +42,7 @@ type roomView struct {
 	ID         string       `json:"id"`
 	Name       string       `json:"name"`
 	Map        string       `json:"map"`
+	Mode       string       `json:"mode"`
 	MaxPlayers int          `json:"maxPlayers"`
 	Phase      string       `json:"phase"`
 	HostID     string       `json:"hostId"`
@@ -89,6 +90,7 @@ func (p *roomProcess) stop() {
 type roomLobby struct {
 	mu                               sync.Mutex
 	rooms                            map[string]*gameRoom
+	maps                             []mapOption
 	slots                            map[int]bool
 	maxRooms                         int
 	root, gameDir, executable, token string
@@ -212,6 +214,7 @@ func (m *roomLobby) roomsAPI(w http.ResponseWriter, r *http.Request) {
 		Name       string `json:"name"`
 		Nickname   string `json:"nickname"`
 		Map        string `json:"map"`
+		Mode       string `json:"mode"`
 		MaxPlayers int    `json:"maxPlayers"`
 	}
 	if !decodeBody(w, r, &b) {
@@ -219,7 +222,17 @@ func (m *roomLobby) roomsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	b.Name = cleanText(b.Name, 32)
 	b.Nickname = cleanText(b.Nickname, 24)
-	if b.Nickname == "" || b.Name == "" || !utf8.ValidString(b.Name) || !allowedMaps[b.Map] || b.MaxPlayers < 2 || b.MaxPlayers > 16 {
+	if b.Mode == "" {
+		b.Mode = classicMode
+	}
+	if b.Mode != classicMode && modeConfig(b.Mode) == "" {
+		apiError(w, 400, "请选择可用的游戏模式")
+		return
+	}
+	if b.Mode == duelMode {
+		b.MaxPlayers = 2
+	}
+	if b.Nickname == "" || b.Name == "" || !utf8.ValidString(b.Name) || !hasMap(modeMaps(m.maps, b.Mode), b.Map) || b.MaxPlayers < 2 || b.MaxPlayers > 16 {
 		apiError(w, 400, "请输入昵称、房间名，并选择有效地图及 2–16 人席位")
 		return
 	}
@@ -241,7 +254,7 @@ func (m *roomLobby) roomsAPI(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 409, "空房正在回收，请稍后重试")
 		return
 	}
-	room := &gameRoom{roomView: roomView{ID: randomID(8), Name: b.Name, Map: b.Map, MaxPlayers: b.MaxPlayers, Phase: "waiting", CreatedAt: time.Now(), Bots: botSettings{Difficulty: 2}}, members: map[string]*roomMember{}, slot: slot, workerPort: roomHTTPPort(slot)}
+	room := &gameRoom{roomView: roomView{ID: randomID(8), Name: b.Name, Map: b.Map, Mode: b.Mode, MaxPlayers: b.MaxPlayers, Phase: "waiting", CreatedAt: time.Now(), Bots: botSettings{Difficulty: 2}}, members: map[string]*roomMember{}, slot: slot, workerPort: roomHTTPPort(slot)}
 	m.rooms[room.ID] = room
 	m.slots[slot] = true
 	p := m.addLocked(room, b.Nickname)
@@ -562,6 +575,12 @@ func (m *roomLobby) spawnRoom(room *gameRoom) (*roomProcess, error) {
 	if err := cloneRoomGame(m.gameDir, game, m.root); err != nil {
 		return nil, err
 	}
+	mode := modeConfig(room.Mode)
+	if mode != "" {
+		if err := os.WriteFile(filepath.Join(game, "cstrike", "winlife_mode.cfg"), []byte(mode), 0600); err != nil {
+			return nil, err
+		}
+	}
 	for _, name := range []string{"server.cfg", "winlife_map.cfg"} {
 		data, err := os.ReadFile(filepath.Join(m.gameDir, "cstrike", name))
 		if err != nil {
@@ -575,6 +594,9 @@ func (m *roomLobby) spawnRoom(room *gameRoom) (*roomProcess, error) {
 		// The room-owned bot config must follow the packaged quota reset on
 		// both initial load and every map change.
 		data = append(data, []byte("\nexec winlife_bots.cfg\n")...)
+		if mode != "" {
+			data = append(data, []byte("exec winlife_mode.cfg\n")...)
+		}
 		if err = os.WriteFile(filepath.Join(game, "cstrike", name), data, 0600); err != nil {
 			return nil, err
 		}
@@ -594,7 +616,7 @@ func (m *roomLobby) spawnRoom(room *gameRoom) (*roomProcess, error) {
 		"CS16_ROOM_WORKER=1", "CS16_GAME_DIR="+game, "XASH3D_BASEDIR="+game, "XASH3D_RODIR=",
 		"CS16_ENGINE_PORT="+strconv.Itoa(room.workerPort-1), "CS16_ENGINE_ADDRESS=127.0.0.1:"+strconv.Itoa(room.workerPort-1),
 		"CS16_LISTEN=127.0.0.1:"+strconv.Itoa(room.workerPort), "CS16_ADMIN_LISTEN=127.0.0.1:"+strconv.Itoa(room.workerPort+1),
-		"CS16_ICE_PORT="+strconv.Itoa(room.workerPort+2), "CS16_MAP="+room.Map, "CS16_MAX_PLAYERS="+strconv.Itoa(nativeRoomCapacity(room.MaxPlayers)))
+		"CS16_ICE_PORT="+strconv.Itoa(room.workerPort+2), "CS16_MAP="+room.Map, "CS16_MODE="+room.Mode, "CS16_MAX_PLAYERS="+strconv.Itoa(nativeRoomCapacity(room.MaxPlayers)))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stdout = output
 	cmd.Stderr = output
@@ -738,7 +760,7 @@ func (m *roomLobby) refreshMaps() {
 		}
 		err = json.NewDecoder(res.Body).Decode(&state)
 		res.Body.Close()
-		if err == nil && allowedMaps[state.Engine.Map] {
+		if err == nil && hasMap(m.maps, state.Engine.Map) {
 			m.mu.Lock()
 			if m.rooms[target.room.ID] == target.room && target.room.Phase == "playing" {
 				target.room.Map = state.Engine.Map
@@ -775,7 +797,7 @@ func (m *roomLobby) handler() http.Handler {
 	mux.HandleFunc("/rooms", m.roomsAPI)
 	mux.HandleFunc("/rooms/", m.roomAPI)
 	mux.HandleFunc("/client-config", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"transport": env("CS16_CLIENT_TRANSPORT", "webrtc"), "lobby": true})
+		writeJSON(w, map[string]any{"transport": env("CS16_CLIENT_TRANSPORT", "webrtc"), "lobby": true, "maps": m.maps, "modes": installedModes(m.maps)})
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()
@@ -836,6 +858,7 @@ func runLobby() {
 		log.Fatal("CS16_MAX_ROOMS must be 1..8")
 	}
 	m := &roomLobby{rooms: map[string]*gameRoom{}, slots: map[int]bool{}, maxRooms: max, root: root, gameDir: game, executable: executable, token: token, http: &http.Client{Timeout: time.Second}}
+	m.maps = installedMaps(game, env("CS16_PUBLIC", "./public"))
 	m.spawn = m.spawnRoom
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()

@@ -29,4 +29,8 @@ macOS 默认使用系统中文字体。工具按素材扩展名复制本地数�
 
 本机资源的摘要与别人的资源包可能不同，生成后请一起发布资源 ZIP 和 `assets-manifest.json`。可在清单的 `browserArchive.url`、`wasmBaseUrl` 设置自己控制的资源服务；跨源下载需要正确 CORS/CORP 响应头，且摘要必须一致。
 
+部署者也可以将新增地图和所需资源放入独立 ZIP，保留压缩包内的 `cstrike/` 和 `valve/` 目录层级。将文件命名为 `maps-<SHA256>.zip`，放到静态目录，清单中添加 `mapArchive.sha256` 并补齐 `maps` 列表。服务端同时需要相同版本的 BSP，玩家的基础资源缓存可继续使用。
+
+双箱庭院与折角回廊的几何和出生点在 `tools/build-duel-maps.py` 中。该工具使用本地 SDHLT 和 `valve/halflife.wad` 生成 BSP，纹理从游戏安装加载。
+
 中文传统商店转换只修改显示贴图和文字，购买条件和价格由原生服务器校验。人机还需要对应地图的 YaPB 导航数据；SDK 构建时生成的 `graphs/` 会在运行时准备阶段复制。

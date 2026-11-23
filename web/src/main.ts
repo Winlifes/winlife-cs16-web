@@ -68,6 +68,7 @@ setInterval(()=>{if(joined&&roomSession)void fetch(roomPath("match"),{cache:"no-
 
 interface AssetsManifest {
     browserArchive:{sha256:string;url?:string};
+    mapArchive?:{sha256:string};
     wasmBaseUrl?:string;
 }
 async function archive(manifest:AssetsManifest) {
@@ -107,6 +108,18 @@ async function chineseMenus():Promise<JSZip>{
     if(!response.ok)throw new Error(`中文菜单加载失败 (${response.status})`);
     return JSZip.loadAsync(await response.arrayBuffer());
 }
+async function extraMaps(manifest:AssetsManifest):Promise<JSZip|undefined> {
+    const digest=manifest.mapArchive?.sha256;
+    if(!digest)return;
+    const cached=await readArchive(digest);
+    if(cached){
+        try{await verifyArchive(cached,digest);return await JSZip.loadAsync(cached);}catch{/* Download a verified copy. */}
+    }
+    const response=await fetch(path(`maps-${digest}.zip`));
+    if(!response.ok)throw new Error(`新增地图下载失败 (${response.status})`);
+    const data=await response.arrayBuffer();await verifyArchive(data,digest);await saveArchive(digest,data);
+    return JSZip.loadAsync(data);
+}
 async function enterRoom(session:RoomSession) {
     if (joined) return;
     roomSession=session;
@@ -141,10 +154,10 @@ async function enterRoom(session:RoomSession) {
         xash.onConnected = () => {rtcReady = true; telemetry.connected(true); damageReports.connected(true); mouseSettings.waiting(); gameUI.reconnecting(); xash?.sendEvent("winlife:hello",name); void refreshHealth();};
         xash.onDisconnected = () => {rtcReady = false; renderCrosshair(undefined); telemetry.connected(false); damageReports.connected(false); mouseSettings.waiting(); el("live-status").textContent = "连接中断，正在自动重连…";};
         xash.onSlowConnection = () => {el("loading-text").textContent = "联机通道建立较慢，正在重试…";};
-        const [zip,chinese] = await Promise.all([archive(manifest), chineseMenus(), xash.init()]);
+        const [zip,chinese,maps] = await Promise.all([archive(manifest), chineseMenus(), extraMaps(manifest), xash.init()]);
         el("loading-text").textContent = "解压并准备游戏…";
         const fs = xash.em!.FS;
-        const files = [...Object.values(zip.files),...Object.values(chinese.files)].filter(f => !f.dir);
+        const files = [zip,maps,chinese].flatMap(part=>Object.values(part?.files??{})).filter(f => !f.dir);
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             const path = `/rodir/${file.name}`;

@@ -1,8 +1,11 @@
 import {BotControls,botDifficulties,botTeamSummary,type BotSettings} from "./bot-controls";
 export interface RoomMember {id:string;nickname:string;joinedAt:string}
-export interface Room {id:string;name:string;map:string;maxPlayers:number;phase:"waiting"|"starting"|"playing"|"failed";hostId:string;members:RoomMember[];error?:string;bots?:BotSettings;botCount?:number;botsError?:string}
+export interface Room {id:string;name:string;map:string;mode?:string;maxPlayers:number;phase:"waiting"|"starting"|"playing"|"failed";hostId:string;members:RoomMember[];error?:string;bots?:BotSettings;botCount?:number;botsError?:string}
 export interface RoomSession {room:Room;memberId:string;token:string}
-export const mapNames:Record<string,string>={de_dust2:"沙漠 II",cs_assault:"仓库突袭",cs_mansion:"豪宅",de_inferno:"炼狱",cs_italy:"意大利"};
+interface CatalogOption {id:string;name:string;description?:string;duel?:boolean}
+interface RoomCatalog {maps?:CatalogOption[];modes?:CatalogOption[]}
+const fallbackMaps=Object.entries({de_dust2:"沙漠 II",cs_assault:"仓库突袭",cs_mansion:"豪宅",de_inferno:"炼狱",cs_italy:"意大利"}).map(([id,name])=>({id,name}));
+const classic={id:"classic",name:"经典对局",description:"每半场 15 小局，先赢 16 局。"};
 export const roomPhase=(room:Room)=>({waiting:"等待开局",starting:"正在开局",playing:"对局中 · 可加入",failed:"等待重新开局"})[room.phase];
 const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const text=(tag:string,value:string,className="")=>{const node=document.createElement(tag);node.textContent=value;node.className=className;return node;};
@@ -11,14 +14,24 @@ export class Lobby {
     private launched=false;
     private polling=false;
     private listSignature="";
+    private maps=new Map<string,string>();
+    private mapOptions:CatalogOption[]=[];
+    private modes=new Map<string,CatalogOption>();
     private readonly botControls:BotControls[];
     private readonly key=`winlife.cs16.room:${location.pathname}`;
     constructor(private readonly path:(name:string)=>string,private readonly nickname:HTMLInputElement,private readonly launch:(session:RoomSession)=>Promise<void>){
+        this.installCatalog({});
+        el("create-mode").onchange=()=>this.describeMode();
+        void fetch(this.path("client-config"),{cache:"no-store"}).then(response=>response.ok?response.json() as Promise<RoomCatalog>:{}).then(catalog=>{
+            this.installCatalog(catalog);
+            this.listSignature="";
+            void this.refresh();
+        }).catch(()=>{});
         this.botControls=["room-bots","game-bots"].map(id=>new BotControls(el(id),settings=>this.setBots(settings)));
         el("create-room").onclick=()=>{if(!this.name())return;el<HTMLInputElement>("room-name").value=`${this.name()}的房间`;el<HTMLDialogElement>("create-dialog").showModal();};
         el("create-cancel").onclick=()=>el<HTMLDialogElement>("create-dialog").close();
         el("create-form").onsubmit=event=>{event.preventDefault();void this.action(async()=>{
-            const joined=await this.api<RoomSession>("rooms","POST",{name:el<HTMLInputElement>("room-name").value,nickname:this.name(),map:el<HTMLSelectElement>("create-map").value,maxPlayers:Number(el<HTMLSelectElement>("create-capacity").value)});
+            const joined=await this.api<RoomSession>("rooms","POST",{name:el<HTMLInputElement>("room-name").value,nickname:this.name(),map:el<HTMLSelectElement>("create-map").value,mode:el<HTMLSelectElement>("create-mode").value,maxPlayers:Number(el<HTMLSelectElement>("create-capacity").value)});
             el<HTMLDialogElement>("create-dialog").close();this.accept(joined);
         },"create-error");};
         el("refresh-rooms").onclick=()=>void this.refresh();
@@ -29,6 +42,33 @@ export class Lobby {
         try{const saved=sessionStorage.getItem(this.key);if(saved)this.session=JSON.parse(saved);}catch{sessionStorage.removeItem(this.key);}
         void this.refresh();setInterval(()=>void this.refresh(),2000);
     }
+    private installCatalog(catalog:RoomCatalog):void {
+        const maps=catalog.maps??fallbackMaps, modes=catalog.modes??[classic];
+        this.mapOptions=maps;
+        this.maps=new Map(maps.map(option=>[option.id,option.name]));
+        this.modes=new Map(modes.map(option=>[option.id,option]));
+        this.setOptions("create-mode",modes,option=>option.name);
+        this.setMaps("map",this.session?.room.mode);
+        this.describeMode();
+    }
+    private setOptions(id:string,options:CatalogOption[],label:(option:CatalogOption)=>string):void {
+        const select=el<HTMLSelectElement>(id),current=select.value;
+        select.replaceChildren(...options.map(option=>new Option(label(option),option.id)));
+        if(options.some(option=>option.id===current))select.value=current;
+    }
+    private setMaps(id:string,mode?:string):void {
+        this.setOptions(id,this.mapOptions.filter(option=>!!option.duel===(mode==="duel")),option=>`${option.name} · ${option.id}`);
+    }
+    private describeMode():void {
+        const mode=el<HTMLSelectElement>("create-mode").value;
+        el("create-mode-info").textContent=this.modes.get(mode)?.description??"";
+        this.setMaps("create-map",mode);
+        const capacity=el<HTMLSelectElement>("create-capacity");
+        capacity.disabled=mode==="duel";
+        if(capacity.disabled)capacity.value="2";
+    }
+    private mapLabel(room:Room):string {return this.maps.get(room.map)??room.map;}
+    private modeLabel(room:Room):string {return this.modes.get(room.mode??classic.id)?.name??classic.name;}
     private name():string {const value=this.nickname.value.trim().replace(/[";\\\r\n]/g,"").slice(0,24);if(!value){this.nickname.focus();el("lobby-error").textContent="请先输入玩家昵称。";}return value;}
     private async api<T>(route:string,method="GET",data?:unknown):Promise<T>{
         const response=await fetch(this.path(route),{method,cache:"no-store",headers:{"Content-Type":"application/json",...(this.session?{"X-CS16-Session":this.session.token}:{})},body:data===undefined?undefined:JSON.stringify(data)});
@@ -57,7 +97,7 @@ export class Lobby {
         if(!this.session)throw new Error("请先加入房间");
         await this.api(`rooms/${this.session.room.id}/rematch`,"POST");
     }
-    private async enter():Promise<void>{if(this.launched||!this.session)return;this.launched=true;await this.launch(this.session);}
+    private async enter():Promise<void>{if(this.launched||!this.session)return;this.launched=true;this.setMaps("map",this.session.room.mode);await this.launch(this.session);}
     private async refresh():Promise<void>{
         if(this.polling)return;this.polling=true;
         try{
@@ -83,7 +123,7 @@ export class Lobby {
         if(!rooms.length){const empty=text("div","","rooms-empty");empty.append(text("strong","还没有房间"),text("p","创建一个房间，叫上朋友一起开局。"));list.append(empty);}
         for(const room of rooms){
             const row=text("article","","room-row");row.dataset.phase=room.phase;
-            const info=text("div","","room-info");info.append(text("strong",room.name),text("small",`${mapNames[room.map]||room.map} · ${room.members.find(p=>p.id===room.hostId)?.nickname||"玩家"} 的房间`));
+            const info=text("div","","room-info");info.append(text("strong",room.name),text("small",`${this.modeLabel(room)} · ${this.mapLabel(room)} · ${room.members.find(p=>p.id===room.hostId)?.nickname||"玩家"} 的房间`));
             const bots=room.phase==="playing"?room.botCount??0:room.bots?.count??0;
             const phase=text("span",roomPhase(room),"room-phase");const count=text("span",`${room.members.length+bots} / ${room.maxPlayers}`,"room-count");
             if(bots)count.append(text("small",`${room.members.length} 真人 · ${bots} 人机`));
@@ -97,7 +137,7 @@ export class Lobby {
         const own=room.members.find(member=>member.id===this.session?.memberId);if(own)this.nickname.value=own.nickname;
         this.nickname.disabled=true;el("room-browser").hidden=true;el("room-view").hidden=false;
         el("server-status").textContent=`${room.name} · ${roomPhase(room)}`;
-        el("room-title").textContent=room.name;el("room-map").textContent=`${mapNames[room.map]||room.map} · ${room.map} · ${room.members.length} / ${room.maxPlayers} 人`;
+        el("room-title").textContent=room.name;el("room-map").textContent=`${this.modeLabel(room)} · ${this.mapLabel(room)} · ${room.members.length} / ${room.maxPlayers} 人`;
         el("room-phase").textContent=roomPhase(room);
         const members=el("room-members");members.replaceChildren();
         for(const member of room.members){const row=text("li","","room-member");row.append(text("span",member.nickname),text("small",member.id===room.hostId?"房主":member.id===this.session?.memberId?"你":"玩家"));members.append(row);}

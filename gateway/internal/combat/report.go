@@ -27,6 +27,35 @@ var (
 	loadingMap  = regexp.MustCompile(`^Loading map "([a-zA-Z0-9_]+)"`)
 )
 
+// EnemyKillTeam returns the killer's playing team for a native enemy kill.
+func EnemyKillTeam(event string) int {
+	match := killed.FindStringSubmatch(event)
+	if match == nil || match[2] == match[6] {
+		return 0
+	}
+	killer, victim := team(match[4]), team(match[8])
+	if (killer == 1 && victim == 2) || (killer == 2 && victim == 1) {
+		return killer
+	}
+	return 0
+}
+
+// PlayingTeamChange identifies authoritative assignments and disconnects.
+// Team zero removes a player from the playing roster.
+func PlayingTeamChange(event string) (string, int, bool) {
+	player := playerEvent.FindStringSubmatch(event)
+	if player == nil {
+		return "", 0, false
+	}
+	if move := joinedTeam.FindStringSubmatch(player[5]); move != nil {
+		return player[2], team(move[1]), true
+	}
+	if player[5] == "disconnected" {
+		return player[2], 0, true
+	}
+	return "", 0, false
+}
+
 type Counts struct {
 	Damage int `json:"damage"`
 	Armor  int `json:"armor"`

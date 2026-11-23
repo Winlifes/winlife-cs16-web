@@ -27,7 +27,7 @@ type joinedRoom struct {
 
 func testLobby(t *testing.T, limit int) (*roomLobby, *httptest.Server) {
 	t.Helper()
-	m := &roomLobby{rooms: map[string]*gameRoom{}, slots: map[int]bool{}, maxRooms: limit, root: t.TempDir(), http: &http.Client{Timeout: time.Second}}
+	m := &roomLobby{rooms: map[string]*gameRoom{}, slots: map[int]bool{}, maps: mapCatalog, maxRooms: limit, root: t.TempDir(), http: &http.Client{Timeout: time.Second}}
 	s := httptest.NewServer(m.handler())
 	t.Cleanup(s.Close)
 	return m, s

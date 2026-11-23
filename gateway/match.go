@@ -8,12 +8,18 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"winlife.local/cs16-gateway/internal/combat"
 )
 
-// Match totals follow the two starting squads through the native side swap.
-// The engine alone decides round winners, kills, purchases and player teams.
+const (
+	deathmatchDuration = 8 * time.Minute
+	deathmatchTarget   = 30
+)
+
 type matchView struct {
 	ID         string `json:"id"`
+	Mode       string `json:"mode"`
 	Phase      string `json:"phase"`
 	Half       int    `json:"half"`
 	Round      int    `json:"round"`
@@ -31,10 +37,26 @@ type matchController struct {
 	view  matchView
 	armed bool
 	ct, t int
+	teams map[string]int
 }
 
 func newMatchController(halfRounds int) *matchController {
-	m := &matchController{view: matchView{HalfRounds: halfRounds, Target: halfRounds + 1}}
+	m := &matchController{view: matchView{Mode: classicMode, HalfRounds: halfRounds, Target: halfRounds + 1}}
+	m.reset("warmup")
+	return m
+}
+
+func newRoomMatch(mode string) *matchController {
+	var view matchView
+	switch mode {
+	case duelMode:
+		view = matchView{Mode: duelMode, Target: 7}
+	case deathmatchMode:
+		view = matchView{Mode: deathmatchMode, Target: deathmatchTarget}
+	default:
+		return newMatchController(15)
+	}
+	m := &matchController{view: view}
 	m.reset("warmup")
 	return m
 }
@@ -44,11 +66,13 @@ var nativeLog = regexp.MustCompile(`(?:L )?\d{2}/\d{2}/\d{4} - \d{2}:\d{2}:\d{2}
 var wonRound = regexp.MustCompile(`^Team "(CT|TERRORIST)" triggered "[A-Za-z_]+" \(CT "(\d+)"\) \(T "(\d+)"\)$`)
 
 func (m *matchController) reset(phase string) {
-	half, target := m.view.HalfRounds, m.view.Target
-	m.view = matchView{ID: randomID(8), Phase: phase, Half: 1, Round: 1, HalfRounds: half, Target: target}
+	m.view = matchView{ID: randomID(8), Mode: m.view.Mode, Phase: phase, Half: 1, Round: 1, HalfRounds: m.view.HalfRounds, Target: m.view.Target}
 	m.armed = false
 	m.ct = 0
 	m.t = 0
+	if phase == "warmup" && m.view.Mode == deathmatchMode {
+		m.teams = make(map[string]int)
+	}
 	m.publish()
 }
 func (m *matchController) publish() {
@@ -85,6 +109,9 @@ func (m *matchController) consume(line string, now time.Time) []string {
 			m.publish()
 		}
 	}()
+	if m.view.Mode == deathmatchMode && m.view.Phase == "warmup" {
+		return m.waitForDeathmatchTeams(event)
+	}
 	if strings.HasPrefix(event, `World triggered "Game_Commencing"`) {
 		if m.view.Phase != "halftime" && m.view.Phase != "finished" && m.view.Phase != "starting" {
 			m.reset("starting")
@@ -105,6 +132,9 @@ func (m *matchController) consume(line string, now time.Time) []string {
 			m.ct = 0
 			m.t = 0
 			m.armed = true
+			if m.view.Mode == deathmatchMode {
+				m.view.EndsAt = now.Add(deathmatchDuration).UnixMilli()
+			}
 		case "halftime":
 			m.view.Phase = "live"
 			m.view.Half = 2
@@ -117,6 +147,9 @@ func (m *matchController) consume(line string, now time.Time) []string {
 			m.armed = true
 		}
 		return nil
+	}
+	if m.view.Mode == deathmatchMode {
+		return m.countDeathmatchKill(event, now)
 	}
 	won := wonRound.FindStringSubmatch(event)
 	if len(won) != 4 || m.view.Phase != "live" || !m.armed {
@@ -140,19 +173,11 @@ func (m *matchController) consume(line string, now time.Time) []string {
 	}
 	played := m.view.ScoreA + m.view.ScoreB
 	m.view.Round = played + 1
-	if m.view.ScoreA >= m.view.Target || m.view.ScoreB >= m.view.Target || played >= m.view.HalfRounds*2 {
-		m.view.Phase = "finished"
-		m.view.EndsAt = 0
+	if m.view.ScoreA >= m.view.Target || m.view.ScoreB >= m.view.Target || m.view.HalfRounds > 0 && played >= m.view.HalfRounds*2 {
 		m.view.Round = played
-		m.view.Winner = "draw"
-		if m.view.ScoreA > m.view.ScoreB {
-			m.view.Winner = "A"
-		} else if m.view.ScoreB > m.view.ScoreA {
-			m.view.Winner = "B"
-		}
-		return []string{"winlife_pause 1"}
+		return m.finish()
 	}
-	if played == m.view.HalfRounds {
+	if m.view.HalfRounds > 0 && played == m.view.HalfRounds {
 		m.view.Phase = "halftime"
 		m.view.Swapped = true
 		m.view.EndsAt = now.Add(11 * time.Second).UnixMilli()
@@ -162,8 +187,77 @@ func (m *matchController) consume(line string, now time.Time) []string {
 	return nil
 }
 
-// Settlement has no deadline. Only the authenticated host can request rematch.
-func (m *matchController) tick(now time.Time) []string { return nil }
+func (m *matchController) waitForDeathmatchTeams(event string) []string {
+	id, team, ok := combat.PlayingTeamChange(event)
+	if !ok {
+		return nil
+	}
+	if team == 1 || team == 2 {
+		m.teams[id] = team
+	} else {
+		delete(m.teams, id)
+	}
+	var hasT, hasCT bool
+	for _, side := range m.teams {
+		hasT = hasT || side == 1
+		hasCT = hasCT || side == 2
+	}
+	if hasT && hasCT {
+		m.reset("starting")
+		return []string{"sv_restart 1"}
+	}
+	return nil
+}
+
+func (m *matchController) finish() []string {
+	m.view.Phase = "finished"
+	m.view.EndsAt = 0
+	m.view.Winner = "draw"
+	if m.view.ScoreA > m.view.ScoreB {
+		m.view.Winner = "A"
+	} else if m.view.ScoreB > m.view.ScoreA {
+		m.view.Winner = "B"
+	}
+	return []string{"winlife_pause 1"}
+}
+
+func (m *matchController) countDeathmatchKill(event string, now time.Time) []string {
+	if m.view.Phase != "live" {
+		return nil
+	}
+	if now.UnixMilli() >= m.view.EndsAt {
+		return m.finish()
+	}
+	switch combat.EnemyKillTeam(event) {
+	case 1:
+		m.view.ScoreA++
+	case 2:
+		m.view.ScoreB++
+	}
+	if m.view.ScoreA >= m.view.Target || m.view.ScoreB >= m.view.Target {
+		return m.finish()
+	}
+	return nil
+}
+
+func (m *matchController) tick(now time.Time) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.view.Mode == deathmatchMode && m.view.Phase == "live" && now.UnixMilli() >= m.view.EndsAt {
+		commands := m.finish()
+		m.publish()
+		return commands
+	}
+	return nil
+}
+
+func (m *matchController) resetEngine() []string {
+	if m.view.Mode == deathmatchMode {
+		return []string{"exec winlife_mode.cfg", "sv_restart 1"}
+	}
+	return []string{"mp_round_infinite 0", "mp_freezetime 3", "sv_restart 1"}
+}
+
 func (m *matchController) restart() ([]string, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -171,7 +265,7 @@ func (m *matchController) restart() ([]string, bool) {
 		return nil, false
 	}
 	m.reset("starting")
-	return []string{"winlife_pause 0", "mp_round_infinite 0", "mp_freezetime 3", "sv_restart 1"}, true
+	return append([]string{"winlife_pause 0"}, m.resetEngine()...), true
 }
 
 func (m *matchController) empty() []string {
@@ -181,7 +275,7 @@ func (m *matchController) empty() []string {
 		return nil
 	}
 	m.reset("warmup")
-	return []string{"mp_round_infinite 0", "mp_freezetime 3", "sv_restart 1"}
+	return m.resetEngine()
 }
 
 func (m *matchController) mapChanged() {

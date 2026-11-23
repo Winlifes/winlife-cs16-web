@@ -1,4 +1,4 @@
-import {availableItems,buyItems,recommendedLoadouts,purchaseCommands,type BuyContext,type BuyItem} from "./buy-catalog";
+import {availableItems,buyGroups,buyItems,recommendedLoadouts,purchaseCommands,type BuyContext,type BuyItem} from "./buy-catalog";
 import {parseBuyUndo,undoMessage,type BuyUndoStatus} from "./buy-undo";
 const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const node=(tag:string,text="",className="")=>{const n=document.createElement(tag);n.textContent=text;n.className=className;return n;};
@@ -60,7 +60,15 @@ export class QuickBuy {
             const buy=node("button","一键购买套装","primary") as HTMLButtonElement;buy.type="button";buy.dataset.loadout=loadout.id;buy.setAttribute("aria-label",`一键购买${loadout.name}套装`);buy.onclick=()=>this.loadout(index);footer.append(buy);
             card.append(art,heading,node("p",loadout.hint,"loadout-hint"),chips,footer);grid.append(card);
         });
-        for(const group of ["weapon","equipment"] as const){const list=el(`shop-${group}-items`);list.replaceChildren(...items.filter(item=>item.group===group).map(item=>this.itemButton(item)));}
+        const singles = document.createDocumentFragment();
+        for (const {id, label} of buyGroups) {
+            const groupItems = items.filter(item => item.group === id);
+            if (!groupItems.length) continue;
+            const list = node("div", "", "buy-item-grid");
+            list.append(...groupItems.map(item => this.itemButton(item)));
+            singles.append(node("h3", label, "buy-group-title"), list);
+        }
+        el("shop-items").replaceChildren(singles);
     }
     loadout(index:number):void {
         const context=this.context(),loadout=recommendedLoadouts(context)[index];if(!context.alive||this.pending||!loadout)return;

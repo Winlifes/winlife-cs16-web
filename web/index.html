@@ -48,7 +48,7 @@
     <div id="crosshair-hud" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div id="game-chat" hidden aria-label="游戏公屏聊天"></div>
     <div id="teammate-labels" aria-label="可见队友昵称"></div>
-    <div id="match-hud" hidden aria-label="对局比分"><div><span id="match-a">队伍 A · T</span><strong><b id="match-score-a">0</b><i>:</i><b id="match-score-b">0</b></strong><span id="match-b">CT · 队伍 B</span></div><small id="match-status">等待双方玩家</small></div>
+    <div id="match-hud" hidden aria-label="对局比分"><div><span id="match-a">队伍 A · T</span><strong><b id="match-score-a">0</b><i>:</i><b id="match-score-b">0</b></strong><span id="match-b">CT · 队伍 B</span></div><small id="match-status">等待双方玩家</small><small id="prop-hud" hidden></small></div>
     <section id="individual-scoreboard" class="classic-panel" hidden aria-labelledby="individual-scoreboard-title">
       <h2 id="individual-scoreboard-title">个人排行榜</h2>
       <div id="individual-scoreboard-content"></div>
@@ -86,13 +86,19 @@
       <section id="ready" class="classic-panel game-panel compact-panel" hidden role="dialog" aria-modal="true" aria-labelledby="ready-title">
         <div class="panel-title"><h2 id="ready-title">准备就绪</h2><span>READY</span></div>
         <p id="ready-status">已加入队伍。</p><p class="panel-note">初次点击进入战场会切换全屏。Esc 打开游戏菜单，按住 Tab 查看战绩和延迟。</p>
-        <div class="panel-actions"><button id="start-battle" class="primary">进入战场</button><button id="ready-team">重新选队</button></div>
+        <div class="panel-actions"><button id="start-battle" class="primary">进入战场</button><button id="props-ready" hidden>选择伪装</button><button id="ready-team">重新选队</button></div>
       </section>
       <section id="pause" class="classic-panel game-panel compact-panel" hidden role="dialog" aria-modal="true" aria-labelledby="pause-title">
         <div class="panel-title"><h2 id="pause-title">游戏菜单</h2><span>COUNTER-STRIKE</span></div>
         <p id="live-status" class="panel-note">正在连接…</p>
-        <nav class="pause-actions"><button id="resume" class="primary">继续游戏</button><button id="scores-toggle">双方战绩与延迟</button><button id="damage-toggle" disabled>伤害统计 · 回合结束或死亡后查看</button><button id="team-toggle">更换队伍</button><button id="buy-menu">购买装备</button><button id="mouse-toggle">鼠标设置</button><button id="bots-toggle">人机设置</button><button id="tools-toggle">换图与设置</button><button id="fullscreen">全屏防误触</button><button id="leave">离开房间，返回大厅</button></nav>
+        <nav class="pause-actions"><button id="resume" class="primary">继续游戏</button><button id="scores-toggle">双方战绩与延迟</button><button id="damage-toggle" disabled>伤害统计 · 回合结束或死亡后查看</button><button id="team-toggle">更换队伍</button><button id="buy-menu">购买装备</button><button id="props-toggle" hidden>选择伪装</button><button id="mouse-toggle">鼠标设置</button><button id="bots-toggle">人机设置</button><button id="tools-toggle">换图与设置</button><button id="fullscreen">全屏防误触</button><button id="leave">离开房间，返回大厅</button></nav>
         <p id="input-status" class="panel-note" role="status">菜单已打开，鼠标可自由移动。</p>
+      </section>
+      <section id="props" class="classic-panel game-panel compact-panel" hidden role="dialog" aria-modal="true" aria-labelledby="props-title">
+        <div class="panel-title"><h2 id="props-title">选择伪装</h2></div>
+        <p id="props-status" class="panel-note" aria-live="polite"></p>
+        <div id="prop-options" class="prop-options"></div>
+        <div class="panel-actions"><button id="props-resume" class="primary">返回战场</button></div>
       </section>
       <section id="shop" class="classic-panel game-panel shop-panel" hidden role="dialog" aria-modal="true" aria-labelledby="shop-title">
         <div class="panel-title"><img src="/ui/cs_logo.png" alt=""><h2 id="shop-title">快捷购买</h2><span>COUNTER-STRIKE / LOADOUTS</span></div>

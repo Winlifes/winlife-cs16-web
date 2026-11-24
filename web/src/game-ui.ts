@@ -6,9 +6,9 @@ import {buyKeyAction} from "./buy-keys";
 import {QuickBuy} from "./quick-buy";
 import {classicBuyCategory,type BuyContext} from "./buy-catalog";
 import {fullscreenGameKeys, protectGameShortcut} from "./game-shortcuts";
-import {isPartyMode} from "./party-mode";
+import {hideProps, isPartyMode, parseDisguise} from "./party-mode";
 
-type Panel="team"|"ready"|"pause"|"tools"|"bots"|"mouse"|"damage"|"shop"|"native"|"scores"|"unlocked"|"playing"|"result";
+type Panel="team"|"ready"|"pause"|"tools"|"bots"|"mouse"|"damage"|"shop"|"props"|"native"|"scores"|"unlocked"|"playing"|"result";
 const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const releasedCommands=["-attack","-attack2","-reload","-forward","-back","-moveleft","-moveright","-jump","-duck","-use","-showscores"];
 interface KeyboardLock {
@@ -20,6 +20,10 @@ export class GameUI {
     private active=false;
     private mode?:string;
     private partyTeamLocked=false;
+    private partyPhase="warmup";
+    private propChoice=0;
+    private availableProps=0;
+    private readonly propButtons:HTMLButtonElement[];
     private isSettled=false;
     private panel:Panel="team";
     private hasTeam=false;
@@ -52,6 +56,23 @@ export class GameUI {
         this.shop=new QuickBuy(()=>readBuyState()??{team:this.ownTeam()??0,map:"",alive:false},command,()=>void this.enter(),()=>{
             this.originalBuy=true;this.command("buy");setTimeout(()=>{if(this.panel==="shop")this.originalBuy=false;},1500);
         });
+        this.propButtons=hideProps.map((name,index)=>{
+            const button=document.createElement("button");
+            const choice=index+1;
+            button.type="button";
+            button.textContent=name;
+            button.dataset.prop=String(choice);
+            button.setAttribute("aria-pressed","false");
+            button.onclick=()=>{
+                if(this.canChooseProp()&&(this.availableProps&(1<<index)))this.command(`winlife_prop ${choice}`);
+            };
+            return button;
+        });
+        el("prop-options").replaceChildren(...this.propButtons);
+        for(const id of ["props-toggle","props-ready"])el(id).onclick=()=>{
+            if(this.canChooseProp())this.show("props");
+        };
+        el("props-resume").onclick=()=>void this.enter(!this.autoFullscreenAttempted);
         el("start-battle").onclick=()=>void this.enter(true);
         for(const id of ["resume","native-resume","shop-resume","mouse-resume","damage-resume"])el(id).onclick=()=>void this.enter();
         el("native-quick-buy").onclick=()=>this.openShop();
@@ -123,10 +144,31 @@ export class GameUI {
     }
     battlePhase(phase:string):void {
         if(!isPartyMode(this.mode))return;
+        this.partyPhase=phase;
         this.partyTeamLocked=["preparing","live","between","finished"].includes(phase);
-        const description=this.mode==="hide"?"T 躲藏，CT 追捕。":"选队后等待开局，服务端会随机选出首个感染者。";
+        const description=this.mode==="hide"?"T 伪装成道具，CT 在倒计时结束后开始追捕。":"选队后等待开局，服务端会随机选出首个感染者。";
         el("party-team-rule").textContent=this.partyTeamLocked?"本局进行中，新加入的玩家可先旁观。":description;
         this.updateTeamButtons();
+        if(this.mode==="hide")this.updateDisguise();
+    }
+    private canChooseProp():boolean {
+        return this.mode==="hide"&&this.partyPhase==="preparing"&&this.propChoice>0&&this.ownTeam()===1;
+    }
+    private updateDisguise():void {
+        const canChoose=this.canChooseProp();
+        const current=(this.partyPhase==="preparing"||this.partyPhase==="live")&&this.ownTeam()===1?hideProps[this.propChoice-1]:undefined;
+        const hud=el("prop-hud");
+        hud.hidden=!current;
+        hud.textContent=current?`当前伪装 · ${current}${canChoose?" · 按 B 更换":""}`:"";
+        for(const id of ["props-toggle","props-ready"])el(id).hidden=!canChoose;
+        const status=el("props-status");
+        const description=current?`当前伪装为${current}。准备阶段结束后锁定。`:"";
+        if(status.textContent!==description)status.textContent=description;
+        this.propButtons.forEach((button,index)=>{
+            button.hidden=!(this.availableProps&(1<<index));
+            button.setAttribute("aria-pressed",String(index+1===this.propChoice));
+        });
+        if(this.panel==="props"&&!canChoose)this.show("unlocked");
     }
     reconnecting():void {if(this.active)this.resetConnection();}
     receiveLog(line:string):void {
@@ -137,11 +179,19 @@ export class GameUI {
     private resetConnection():void {
         this.teams.reset();
         this.generation++;this.hasTeam=false;this.currentTeam=undefined;this.teamReady=false;
+        this.propChoice=0;this.availableProps=0;
         this.show("team");this.updateTeamButtons();el("team-status").textContent="正在连接服务器，稍后即可选择队伍…";
+        if(this.mode==="hide")this.updateDisguise();
     }
     private handleLog(line:string):void {
         this.shop.receiveLog(line);
         this.teams.receiveLog(line);
+        const disguise=this.mode==="hide"?parseDisguise(line):undefined;
+        if(disguise){
+            this.propChoice=disguise.choice;
+            this.availableProps=disguise.available;
+            this.updateDisguise();
+        }
         if(/Server #\d+/.test(line))this.resetConnection();
         if(line.includes("execing touch/chooseteam.cfg")){
             this.teamReady=true;this.updateTeamButtons();this.show("team");
@@ -177,7 +227,7 @@ export class GameUI {
         if(panel!=="native")this.originalBuy=false;
         document.documentElement.dataset.inputMode=panel==="playing"?"playing":["native","scores","unlocked"].includes(panel)?"native":"menu";
         el("overlay").hidden=["playing","native","scores","unlocked"].includes(panel);
-        for(const name of ["team","ready","pause","tools","bots","mouse","damage","shop","result"] as const)el(name).hidden=name!==panel;
+        for(const name of ["team","ready","pause","tools","bots","mouse","damage","shop","props","result"] as const)el(name).hidden=name!==panel;
         this.teamRoster.setVisible(panel==="team"&&!this.individual);
         this.shop.setVisible(panel==="shop");
         el("native-menu-hint").hidden=panel!=="native"&&panel!=="unlocked";
@@ -193,7 +243,7 @@ export class GameUI {
                 if(panel==="result"||panel==="damage"){el(panel).scrollTop=0;el(`${panel}-title`).tabIndex=-1;el(`${panel}-title`).focus({preventScroll:true});}
                 else if(panel==="native"||panel==="scores"||panel==="unlocked")this.canvas.focus();
                 else if(panel==="mouse")el<HTMLInputElement>("mouse-sensitivity").focus();
-                else el(panel).querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+                else el(panel).querySelector<HTMLButtonElement>("button:not(:disabled):not([hidden])")?.focus();
             });
         }
     }
@@ -251,7 +301,7 @@ export class GameUI {
         // Close the page panel even when the browser refuses pointer capture
         // (for example immediately after Escape). A canvas click can retry.
         this.show("unlocked");
-        const buttons=["resume","start-battle","native-resume","shop-resume","mouse-resume","damage-resume"].map(id=>el<HTMLButtonElement>(id));
+        const buttons=["resume","start-battle","native-resume","shop-resume","mouse-resume","damage-resume","props-resume"].map(id=>el<HTMLButtonElement>(id));
         buttons.forEach(button=>button.disabled=true);
         const enterFullscreen=startBattle&&!this.autoFullscreenAttempted&&!document.fullscreenElement;
         if(startBattle)this.autoFullscreenAttempted=true;
@@ -307,7 +357,9 @@ export class GameUI {
             el("individual-scoreboard").hidden=false;event.preventDefault();event.stopImmediatePropagation();return;
         }
         if(this.panel==="playing"&&!editing&&key==="b"&&isPartyMode(this.mode)){
-            event.preventDefault();event.stopImmediatePropagation();return;
+            event.preventDefault();event.stopImmediatePropagation();
+            if(!event.repeat&&this.canChooseProp())this.show("props");
+            return;
         }
         if(key==="escape"){
             event.preventDefault();event.stopImmediatePropagation();

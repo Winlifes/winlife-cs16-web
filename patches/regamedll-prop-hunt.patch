@@ -1,0 +1,449 @@
+diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
+index 516c7c8..bb8e58c 100644
+--- a/regamedll/dlls/client.cpp
++++ b/regamedll/dlls/client.cpp
+@@ -318,6 +318,7 @@ BOOL EXT_FUNC ClientConnect(edict_t *pEntity, const char *pszName, const char *p
+ void EXT_FUNC ClientDisconnect(edict_t *pEntity)
+ {
+ 	CBasePlayer *pPlayer = CBasePlayer::Instance(pEntity);
++	WinlifePartyClearDisguise(pPlayer, false);
+ 
+ 	if (!g_pGameRules->IsGameOver())
+ 	{
+@@ -2661,6 +2662,7 @@ BOOL HandleRadioAliasCommands(CBasePlayer *pPlayer, const char *pszCommand)
+ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *parg1)
+ {
+ 	if (WinlifeBuyCommand(CBasePlayer::Instance(pEntity), pcmd)) return;
++	if (WinlifePartyPropCommand(CBasePlayer::Instance(pEntity), pcmd, parg1)) return;
+ 	const char *pstr = nullptr;
+ 	entvars_t *pev = &pEntity->v;
+ 	CBasePlayer *pPlayer = GetClassPtr<CCSPlayer>((CBasePlayer *)pev);
+@@ -3913,6 +3915,7 @@ void EXT_FUNC PlayerPostThink(edict_t *pEntity)
+ 	if (pPlayer)
+ 	{
+ 		pPlayer->PostThink();
++		WinlifePartyUpdateDisguise(pPlayer);
+ 	}
+ }
+ 
+@@ -4551,6 +4554,8 @@ BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, e
+ {
+ 	if (ent != host)
+ 	{
++		if (player && WinlifePartyIsDisguised(CBasePlayer::Instance(ent)))
++			return FALSE;
+ 		if ((ent->v.effects & EF_NODRAW) == EF_NODRAW)
+ 			return FALSE;
+ 
+diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
+index 0b79136..747f05c 100644
+--- a/regamedll/dlls/player.cpp
++++ b/regamedll/dlls/player.cpp
+@@ -1538,7 +1538,7 @@ void CBasePlayer::PackDeadPlayerItems()
+ 	int iPackGun = g_pGameRules->DeadPlayerWeapons(this);
+ 	bool bPackAmmo = (g_pGameRules->DeadPlayerAmmo(this) != GR_PLR_DROP_AMMO_NO);
+ 
+-	if (iPackGun != GR_PLR_DROP_GUN_NO)
++	if (iPackGun != GR_PLR_DROP_GUN_NO && !CSGameRules()->IsFreeForAll())
+ 	{
+ 		bool bSkipPrimSec = false;
+ 		if (HasShield())
+@@ -2253,6 +2253,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
+ 
+ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
+ {
++	WinlifePartyClearDisguise(this, true);
+ 	m_canSwitchObserverModes = false;
+ 
+ 	if (m_LastHitGroup == HITGROUP_HEAD)
+@@ -2590,7 +2591,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
+ 
+ 	if (m_bHasC4)
+ 	{
+-		DropPlayerItem("weapon_c4");
++		if (CSGameRules()->IsFreeForAll())
++			RemoveBomb();
++		else
++			DropPlayerItem("weapon_c4");
+ 
+ #ifndef REGAMEDLL_FIXES
+ 		// NOTE: It is already does reset inside DropPlayerItem
+@@ -2600,11 +2604,14 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
+ 	else if (m_bHasDefuser)
+ 	{
+ 		RemoveDefuser();
++		if (!CSGameRules()->IsFreeForAll())
++		{
+ #ifdef REGAMEDLL_FIXES
+-		SpawnDefuser(pev->origin, ENT(pev));
++			SpawnDefuser(pev->origin, ENT(pev));
+ #else
+-		GiveNamedItem("item_thighpack");
++			GiveNamedItem("item_thighpack");
+ #endif
++		}
+ 	}
+ 
+ #ifndef REGAMEDLL_FIXES
+@@ -3920,6 +3927,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, Disappear)
+ 
+ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
+ {
++	WinlifePartyClearDisguise(this, true);
+ 	DetachTank();
+ 
+ #ifndef REGAMEDLL_FIXES
+@@ -3963,7 +3971,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
+ 
+ 	if (m_bHasC4)
+ 	{
+-		DropPlayerItem("weapon_c4");
++		if (CSGameRules()->IsFreeForAll())
++			RemoveBomb();
++		else
++			DropPlayerItem("weapon_c4");
+ 
+ #ifndef REGAMEDLL_FIXES
+ 		// NOTE: It is already does reset inside DropPlayerItem
+@@ -3973,11 +3984,14 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
+ 	else if (m_bHasDefuser)
+ 	{
+ 		RemoveDefuser();
++		if (!CSGameRules()->IsFreeForAll())
++		{
+ #ifdef REGAMEDLL_FIXES
+-		SpawnDefuser(pev->origin, ENT(pev));
++			SpawnDefuser(pev->origin, ENT(pev));
+ #else
+-		GiveNamedItem("item_thighpack");
++			GiveNamedItem("item_thighpack");
+ #endif
++		}
+ 	}
+ 
+ 	BuyZoneIcon_Clear(this);
+@@ -8384,7 +8398,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateStatusBar)()
+ 			CBaseEntity *pEntity = CBaseEntity::Instance(tr.pHit);
+ 			bool isVisiblePlayer = ((TheBots == nullptr || !TheBots->IsLineBlockedBySmoke(&pev->origin, &pEntity->pev->origin)) && pEntity->Classify() == CLASS_PLAYER);
+ 
+-			if (gpGlobals->time >= m_blindUntilTime && isVisiblePlayer)
++			if (gpGlobals->time >= m_blindUntilTime && isVisiblePlayer &&
++				!WinlifePartyIsDisguised(static_cast<CBasePlayer *>(pEntity)))
+ 			{
+ 				CBasePlayer *pTarget = (CBasePlayer *)pEntity;
+ 
+@@ -10935,6 +10950,8 @@ void CBasePlayer::PlayerRespawnThink()
+ 			}
+ 
+ 			Spawn();
++			if (CSGameRules()->IsFreeForAll() && m_iDeaths > 0 && IsAlive())
++				EMIT_SOUND(edict(), CHAN_AUTO, "buttons/blip2.wav", 0.65f, ATTN_STATIC);
+ 			pev->button = 0;
+ 			pev->nextthink = -1;
+ 			return;
+diff --git a/regamedll/dlls/winlife_party.cpp b/regamedll/dlls/winlife_party.cpp
+index cf8c8b2..a0fe36c 100644
+--- a/regamedll/dlls/winlife_party.cpp
++++ b/regamedll/dlls/winlife_party.cpp
+@@ -1,5 +1,7 @@
+ #include "precompiled.h"
+ #include "winlife_party.h"
++#include <array>
++#include <cstdlib>
+ #include <vector>
+ 
+ namespace {
+@@ -15,6 +17,28 @@ float nextCheck = 0;
+ float joinDeadline = 0;
+ bool initialRound = true;
+ 
++struct PropSpec
++{
++    const char *model;
++    float lift;
++};
++// These models are already in the game data. Lift accounts for each model's origin.
++constexpr PropSpec propSpecs[] = {
++    { "models/pallet_with_bags.mdl", 22.4f },
++    { "models/bush.mdl", 32.f },
++    { "models/big_rock.mdl", 1.f },
++    { "models/filecabinet.mdl", 0.f },
++    { "models/uplant2.mdl", 0.f },
++};
++constexpr int propCount = sizeof(propSpecs) / sizeof(propSpecs[0]);
++struct Disguise
++{
++    EHANDLE entity;
++    int choice = 0;
++};
++std::array<Disguise, MAX_CLIENTS + 1> disguises;
++int availableProps = 0;
++
+ Mode mode()
+ {
+     if (partyMode.value == 1) return Mode::Infection;
+@@ -28,6 +52,80 @@ bool playing(CBasePlayer *player)
+         (player->m_iTeam == CT || player->m_iTeam == TERRORIST);
+ }
+ 
++bool hiding(CBasePlayer *player)
++{
++    return mode() == Mode::Hide && (phase == Phase::Prep || phase == Phase::Live)
++        && playing(player) && player->m_iTeam == TERRORIST && player->IsAlive();
++}
++
++Disguise &disguiseOf(CBasePlayer *player)
++{
++    return disguises[player->entindex()];
++}
++
++void showProp(CBasePlayer *player, int choice)
++{
++    char message[64];
++    Q_snprintf(message, sizeof(message), "WINLIFE_PROP 1 %d %d\n", choice, availableProps);
++    ClientPrint(player->pev, HUD_PRINTCONSOLE, message);
++}
++
++void removeProp(Disguise &disguise)
++{
++    if (CBaseEntity *entity = disguise.entity)
++    {
++        entity->pev->effects |= EF_NODRAW;
++        UTIL_Remove(entity);
++    }
++    disguise = Disguise{};
++}
++
++void clearProps()
++{
++    if (mode() != Mode::Hide) return;
++    for (auto &disguise : disguises) removeProp(disguise);
++}
++
++void updateProp(CBasePlayer *player, CBaseEntity *entity, int choice)
++{
++    const auto *pev = player->pev;
++    const Vector origin = pev->origin + Vector(0, 0, pev->mins.z + propSpecs[choice - 1].lift + 1.f);
++    if (entity->pev->origin != origin)
++        UTIL_SetOrigin(entity->pev, origin);
++    if (pev->velocity.Length2D() > 20.f)
++        entity->pev->angles.y = pev->v_angle.y;
++}
++
++void applyProp(CBasePlayer *player, int choice)
++{
++    auto &disguise = disguiseOf(player);
++    CBaseEntity *entity = disguise.entity;
++    if (!entity)
++    {
++        entity = CBaseEntity::Create("info_target", player->pev->origin, g_vecZero, player->edict());
++        if (!entity) return;
++        entity->pev->effects |= EF_OWNER_NO_VISIBILITY;
++        entity->pev->framerate = 0;
++        disguise.entity = entity;
++    }
++    SET_MODEL(entity->edict(), propSpecs[choice - 1].model);
++    entity->pev->angles.y = player->pev->v_angle.y;
++    disguise.choice = choice;
++    updateProp(player, entity, choice);
++    showProp(player, choice);
++}
++
++void chooseStartingProp(CBasePlayer *player)
++{
++    int choice = 0, seen = 0;
++    for (int i = 0; i < propCount; ++i)
++    {
++        if ((availableProps & (1 << i)) && RANDOM_LONG(1, ++seen) == 1)
++            choice = i + 1;
++    }
++    if (choice) applyProp(player, choice);
++}
++
+ std::vector<CBasePlayer *> players()
+ {
+     std::vector<CBasePlayer *> result;
+@@ -59,7 +157,8 @@ void equip(CBasePlayer *player)
+     player->RemoveAllItems(FALSE);
+     player->pev->armorvalue = 0;
+     player->m_iKevlar = ARMOR_NONE;
+-    player->GiveNamedItem("weapon_knife");
++    if (mode() != Mode::Hide || player->m_iTeam == CT || !availableProps)
++        player->GiveNamedItem("weapon_knife");
+     if (mode() == Mode::Infection && player->m_iTeam == CT)
+     {
+         player->GiveNamedItem("weapon_mp5navy");
+@@ -75,7 +174,8 @@ void beginRound(const std::vector<CBasePlayer *> &list)
+ {
+     const bool infection = mode() == Mode::Infection;
+     CBasePlayer *seed = infection ? list[RANDOM_LONG(0, static_cast<int>(list.size()) - 1)] : nullptr;
+-    const int prepTime = infection ? 6 : 12;
++    const int prepTime = infection ? 6 : 20;
++    clearProps();
+     initialRound = false;
+     phase = Phase::Prep;
+     deadline = gpGlobals->time + prepTime;
+@@ -94,12 +194,15 @@ void beginRound(const std::vector<CBasePlayer *> &list)
+         equip(player);
+         if (mode() == Mode::Hide && player->m_iTeam == CT)
+             UTIL_ScreenFade(player, Vector(0, 0, 0), 0.1f, prepTime, 255, FFADE_OUT | FFADE_STAYOUT);
++        else if (hiding(player))
++            chooseStartingProp(player);
+     }
+     report("prep", prepTime);
+ }
+ 
+ void finishRound(int winner)
+ {
++    clearProps();
+     UTIL_LogPrintf("World triggered \"Round_End\"\n");
+     if (mode() == Mode::Hide && roundNumber == 1)
+     {
+@@ -126,6 +229,7 @@ void clearRound()
+ void resetMatch()
+ {
+     if (!WinlifePartyEnabled()) return;
++    clearProps();
+     clearRound();
+     releasePlayers(players());
+     report("wait");
+@@ -139,10 +243,81 @@ void WinlifePartyRegister()
+     ADD_SERVER_COMMAND("winlife_party_reset", resetMatch);
+ }
+ 
++void WinlifePartyPrecache()
++{
++    // The room's ordinary config runs after the initial world loads.
++    const char *roomMode = std::getenv("CS16_MODE");
++    availableProps = 0;
++    disguises = {};
++    if (mode() != Mode::Hide && (!roomMode || !FStrEq(roomMode, "hide"))) return;
++    for (int i = 0; i < propCount; ++i)
++    {
++        const char *model = propSpecs[i].model;
++        if (GET_FILE_SIZE(model) > 0 && PRECACHE_MODEL(model) > 0)
++            availableProps |= 1 << i;
++    }
++}
++
++bool WinlifePartyIsDisguised(CBasePlayer *player)
++{
++    return hiding(player) && disguiseOf(player).entity.IsValid();
++}
++
++void WinlifePartyClearDisguise(CBasePlayer *player, bool notify)
++{
++    if (mode() != Mode::Hide || !player) return;
++    auto &disguise = disguiseOf(player);
++    if (!disguise.choice) return;
++    removeProp(disguise);
++    if (notify) showProp(player, 0);
++}
++
++void WinlifePartyUpdateDisguise(CBasePlayer *player)
++{
++    if (mode() != Mode::Hide) return;
++    auto &disguise = disguiseOf(player);
++    if (!disguise.choice) return;
++    if (!hiding(player))
++    {
++        WinlifePartyClearDisguise(player, true);
++        return;
++    }
++    if (CBaseEntity *entity = disguise.entity)
++        updateProp(player, entity, disguise.choice);
++}
++
++bool WinlifePartyPropCommand(CBasePlayer *player, const char *command, const char *arg)
++{
++    if (!FStrEq(command, "winlife_prop")) return false;
++    if (!hiding(player) || phase != Phase::Prep || !arg || Q_strlen(arg) != 1) return true;
++    const int choice = arg[0] - '1';
++    if (choice >= 0 && choice < propCount && (availableProps & (1 << choice)))
++        applyProp(player, choice + 1);
++    return true;
++}
++
+ void WinlifePartyMapReset()
+ {
+     clearRound();
+     initialRound = true;
++    if (!availableProps) return;
++
++    // The dedicated maps mark their static copies with the same model catalog.
++    CBaseEntity *decoy = nullptr;
++    while ((decoy = UTIL_FindEntityByTargetname(decoy, "winlife_hide_prop")))
++    {
++        if (!FClassnameIs(decoy->pev, "info_target")) continue;
++        for (int i = 0; i < propCount; ++i)
++        {
++            if (!(availableProps & (1 << i)) || !FStrEq(STRING(decoy->pev->model), propSpecs[i].model))
++                continue;
++            if (!decoy->pev->modelindex)
++                UTIL_SetOrigin(decoy->pev, decoy->pev->origin + Vector(0, 0, propSpecs[i].lift + 1.f));
++            SET_MODEL(decoy->edict(), propSpecs[i].model);
++            decoy->pev->framerate = 0;
++            break;
++        }
++    }
+ }
+ 
+ bool WinlifePartyEnabled() { return mode() != Mode::Off; }
+@@ -161,6 +336,8 @@ bool WinlifePartyAllowTeam(CBasePlayer *player, int slot)
+ 
+ bool WinlifePartyAllowItem(CBasePlayer *player, int weapon)
+ {
++    if (mode() == Mode::Hide && availableProps && player->m_iTeam == TERRORIST)
++        return false;
+     return !WinlifePartyEnabled() || weapon == WEAPON_KNIFE ||
+         (mode() == Mode::Infection && player->m_iTeam == CT && weapon == WEAPON_MP5N);
+ }
+diff --git a/regamedll/dlls/winlife_party.h b/regamedll/dlls/winlife_party.h
+index 2feecb9..f688362 100644
+--- a/regamedll/dlls/winlife_party.h
++++ b/regamedll/dlls/winlife_party.h
+@@ -3,6 +3,7 @@
+ class CBasePlayer;
+ 
+ void WinlifePartyRegister();
++void WinlifePartyPrecache();
+ void WinlifePartyMapReset();
+ void WinlifePartyFrame();
+ bool WinlifePartyEnabled();
+@@ -10,4 +11,8 @@ bool WinlifePartyFrozen(CBasePlayer *player);
+ bool WinlifePartyAllowTeam(CBasePlayer *player, int slot);
+ bool WinlifePartyAllowItem(CBasePlayer *player, int weapon);
+ void WinlifePartyInput(CBasePlayer *player);
++bool WinlifePartyIsDisguised(CBasePlayer *player);
++void WinlifePartyClearDisguise(CBasePlayer *player, bool notify);
++void WinlifePartyUpdateDisguise(CBasePlayer *player);
++bool WinlifePartyPropCommand(CBasePlayer *player, const char *command, const char *arg);
+ bool WinlifePartyIntercept(CBasePlayer *victim, entvars_t *inflictor, entvars_t *attacker, float &damage);
+diff --git a/regamedll/dlls/world.cpp b/regamedll/dlls/world.cpp
+index a6dfe4b..43305c6 100644
+--- a/regamedll/dlls/world.cpp
++++ b/regamedll/dlls/world.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "winlife_party.h"
+ 
+ edict_t *g_pBodyQueueHead;
+ CGlobalState gGlobalState;
+@@ -322,6 +323,7 @@ void CWorld::Precache()
+ 	// get weapon precaches
+ 
+ 	WeaponsPrecache();
++	WinlifePartyPrecache();
+ 	ClientPrecache();
+ 	BotPrecache();
+ 
+@@ -332,6 +334,9 @@ void CWorld::Precache()
+ 	// temporary sound for respawning weapons.
+ 	PRECACHE_SOUND("items/suitchargeok1.wav");
+ 
++	// Positional player respawn cue in free-for-all.
++	PRECACHE_SOUND("buttons/blip2.wav");
++
+ 	// player picks up a gun.
+ 	PRECACHE_SOUND("items/gunpickup2.wav");
+ 

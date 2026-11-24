@@ -3,7 +3,7 @@ import {isPartyMode} from "./party-mode";
 export interface RoomMember {id:string;nickname:string;joinedAt:string}
 export interface Room {id:string;name:string;map:string;mode?:string;maxPlayers:number;phase:"waiting"|"starting"|"playing"|"failed";hostId:string;members:RoomMember[];error?:string;bots?:BotSettings;botCount?:number;botsError?:string}
 export interface RoomSession {room:Room;memberId:string;token:string}
-interface CatalogOption {id:string;name:string;description?:string;duel?:boolean}
+interface CatalogOption {id:string;name:string;description?:string;duel?:boolean;hide?:boolean}
 interface RoomCatalog {maps?:CatalogOption[];modes?:CatalogOption[]}
 const fallbackMaps=Object.entries({de_dust2:"沙漠 II",cs_assault:"仓库突袭",cs_mansion:"豪宅",de_inferno:"炼狱",cs_italy:"意大利"}).map(([id,name])=>({id,name}));
 const classic={id:"classic",name:"经典对局",description:"每半场 15 小局，先赢 16 局。"};
@@ -58,7 +58,7 @@ export class Lobby {
         if(options.some(option=>option.id===current))select.value=current;
     }
     private setMaps(id:string,mode?:string):void {
-        this.setOptions(id,this.mapOptions.filter(option=>!!option.duel===(mode==="duel")),option=>`${option.name} · ${option.id}`);
+        this.setOptions(id,this.mapOptions.filter(option=>!!option.duel===(mode==="duel")&&!!option.hide===(mode==="hide")),option=>`${option.name} · ${option.id}`);
     }
     private describeMode():void {
         const mode=el<HTMLSelectElement>("create-mode").value;

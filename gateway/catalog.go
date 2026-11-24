@@ -15,6 +15,7 @@ type mapOption struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Duel bool   `json:"duel,omitempty"`
+	Hide bool   `json:"hide,omitempty"`
 }
 
 var mapCatalog = []mapOption{
@@ -22,6 +23,7 @@ var mapCatalog = []mapOption{
 	{ID: "de_inferno", Name: "炼狱"}, {ID: "cs_italy", Name: "意大利"}, {ID: "de_dust", Name: "沙漠 I"},
 	{ID: "de_nuke", Name: "核子危机"}, {ID: "de_train", Name: "列车站"}, {ID: "de_aztec", Name: "阿兹特克"}, {ID: "cs_office", Name: "办公大楼"},
 	{ID: "wl_duel_yard", Name: "双箱庭院", Duel: true}, {ID: "wl_duel_cross", Name: "折角回廊", Duel: true},
+	{ID: "wl_hide_depot", Name: "转运仓库", Hide: true}, {ID: "wl_hide_nursery", Name: "苗圃后院", Hide: true},
 }
 
 func hasMap(maps []mapOption, id string) bool {
@@ -31,7 +33,7 @@ func hasMap(maps []mapOption, id string) bool {
 func modeMaps(maps []mapOption, mode string) []mapOption {
 	var available []mapOption
 	for _, option := range maps {
-		if option.Duel == (mode == duelMode) {
+		if option.Duel == (mode == duelMode) && option.Hide == (mode == hideMode) {
 			available = append(available, option)
 		}
 	}
@@ -94,7 +96,7 @@ var modeCatalog = []modeOption{
 	{deathmatchMode, "团队死斗", "阵亡约 2 秒后复活，可随时购买。先到 30 击杀获胜，限时 8 分钟。"},
 	{individualMode, "个人竞技", "所有其他玩家均为对手，阵亡约 2 秒后复活。先到 30 次击杀获胜，或在 8 分钟结束时按击杀数排名。"},
 	{infectionMode, "生化感染", "2–10 名真人。随机一人先感染，准备 6 秒。人类守住 100 秒或消灭感染者即可获胜。"},
-	{hideMode, "躲猫猫", "2–10 名真人。T 躲藏，CT 追捕。先藏 12 秒，追捕 75 秒，两局交换角色。"},
+	{hideMode, "躲猫猫", "2–10 名真人。躲藏者按 B 选择道具。准备 20 秒，追捕 75 秒，两局交换角色。"},
 }
 
 func installedModes(maps []mapOption, party, individual bool) []modeOption {

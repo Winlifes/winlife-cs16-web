@@ -13,7 +13,7 @@ function setup(panel:string,hasTeam=true,settled=false,repeat=false,keyboard:Par
     ui.keydown(event);return {ui,event};
 }
 it("closes settings and the pause menu on Escape after joining a team",()=>{
-    for(const panel of ["pause","mouse","bots","tools","shop","damage","scores","team","native","ready"]){
+    for(const panel of ["pause","mouse","bots","tools","shop","props","damage","scores","team","native","ready"]){
         const {ui,event}=setup(panel);expect(ui.show).toHaveBeenCalledWith("unlocked");expect(ui.pause).not.toHaveBeenCalled();
         // Browsers reserve Escape to release pointer lock. Recapturing on the
         // same key would immediately reopen pause after keyup.

@@ -44,6 +44,7 @@ for repo, patch in [
     (regamedll, 'regamedll-party.patch'),
     (regamedll, 'regamedll-ffa-spawns.patch'),
     (regamedll, 'regamedll-ffa-loadout.patch'),
+    (regamedll, 'regamedll-prop-hunt.patch'),
     (yapb, 'yapb-apple-arm64.patch'),
     (yapb, 'yapb-team-quota.patch'),
     (yapb, 'yapb-ffa-spawns.patch'),
@@ -57,7 +58,7 @@ for repo, patch in [
     file = str(ROOT / 'patches' / patch)
     # Idempotent: do not overwrite a modified tree or apply a patch twice.
     apply = ['git', 'apply']
-    if patch in ('regamedll-party.patch', 'regamedll-ffa-spawns.patch', 'regamedll-ffa-loadout.patch'):
+    if patch in ('regamedll-party.patch', 'regamedll-ffa-spawns.patch', 'regamedll-ffa-loadout.patch', 'regamedll-prop-hunt.patch'):
         apply.append('--ignore-space-change')
     reverse = subprocess.run([*apply, '--reverse', '--check', file], cwd=repo, capture_output=True)
     if reverse.returncode == 0:

@@ -1,40 +1,72 @@
 const databaseName="winlife-cs16-assets";
+const legacyStore="archives";
+type ArchiveKind="game"|"maps";
 
 function database():Promise<IDBDatabase> {
     return new Promise((resolve,reject)=>{
-        const request=indexedDB.open(databaseName,1);
-        request.onupgradeneeded=()=>request.result.createObjectStore("archives");
-        request.onsuccess=()=>resolve(request.result);
+        const request=indexedDB.open(databaseName,2);
+        let blocked=false;
+        request.onupgradeneeded=()=>{
+            request.result.createObjectStore("game");
+            request.result.createObjectStore("maps");
+        };
+        request.onblocked=()=>{
+            blocked=true;
+            reject(new Error("资源缓存正在被其他页面使用"));
+        };
+        request.onsuccess=()=>{
+            const db=request.result;
+            db.onversionchange=()=>db.close();
+            if(blocked)db.close();
+            else resolve(db);
+        };
         request.onerror=()=>reject(request.error);
     });
 }
 
-export async function readArchive(key:string):Promise<ArrayBuffer|undefined> {
-    try {
-        const db=await database();
-        return await new Promise((resolve,reject)=>{
-            const tx=db.transaction("archives","readonly");
-            const request=tx.objectStore("archives").get(key);
-            request.onsuccess=()=>resolve(request.result instanceof ArrayBuffer?request.result:undefined);
-            request.onerror=()=>reject(request.error);
-            tx.oncomplete=()=>db.close();
-        });
-    } catch {return undefined;}
+function readStoredArchive(db:IDBDatabase,store:string,key:string):Promise<ArrayBuffer|undefined> {
+    return new Promise((resolve,reject)=>{
+        const request=db.transaction(store).objectStore(store).get(key);
+        request.onsuccess=()=>resolve(request.result instanceof ArrayBuffer?request.result:undefined);
+        request.onerror=()=>reject(request.error);
+    });
 }
 
-export async function saveArchive(key:string,data:ArrayBuffer):Promise<void> {
+export async function readArchive(kind:ArchiveKind,digest:string):Promise<ArrayBuffer|undefined> {
+    let db:IDBDatabase|undefined;
+    let cached:ArrayBuffer|undefined;
+    let legacy=false;
     try {
-        const db=await database();
+        db=await database();
+        cached=await readStoredArchive(db,kind,digest);
+        if(!cached&&db.objectStoreNames.contains(legacyStore)){
+            cached=await readStoredArchive(db,legacyStore,digest);
+            legacy=true;
+        }
+    } catch {return undefined;} finally {db?.close();}
+    if(!cached)return;
+    try {await verifyArchive(cached,digest);} catch {return undefined;}
+    if(legacy)await saveArchive(kind,digest,cached);
+    return cached;
+}
+
+export async function saveArchive(kind:ArchiveKind,digest:string,data:ArrayBuffer):Promise<void> {
+    let db:IDBDatabase|undefined;
+    try {
+        db=await database();
+        const hasLegacy=db.objectStoreNames.contains(legacyStore);
+        const tx=db.transaction(hasLegacy?[kind,legacyStore]:kind,"readwrite");
         await new Promise<void>((resolve,reject)=>{
-            const tx=db.transaction("archives","readwrite");
-            const store=tx.objectStore("archives");
-            // Keep one content-addressed version rather than growing disk use.
-            store.clear();store.put(data,key);
-            tx.oncomplete=()=>{db.close();resolve();};
-            tx.onerror=()=>{db.close();reject(tx.error);};
-            tx.onabort=()=>{db.close();reject(tx.error);};
+            tx.oncomplete=()=>resolve();
+            tx.onabort=()=>reject(tx.error);
+            // Evict only the previous version of this archive.
+            const store=tx.objectStore(kind);
+            store.clear();
+            if(hasLegacy)tx.objectStore(legacyStore).delete(digest);
+            store.put(data,digest);
         });
-    } catch { /* Browser storage may be full/disabled; gameplay can continue. */ }
+    } catch { /* Browser storage may be full or disabled. */ }
+    finally {db?.close();}
 }
 
 export async function verifyArchive(data:ArrayBuffer,expected:string):Promise<void> {

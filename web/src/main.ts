@@ -72,17 +72,18 @@ interface AssetsManifest {
     wasmBaseUrl?:string;
 }
 async function archive(manifest:AssetsManifest) {
-    const digest=manifest.browserArchive.sha256 as string;
+    const digest=manifest.browserArchive.sha256;
     if(assetFile){
         el("loading-text").textContent="正在校验本地资源包…";
-        const data=await assetFile.arrayBuffer();await verifyArchive(data,digest);await saveArchive(digest,data);
+        const data=await assetFile.arrayBuffer();await verifyArchive(data,digest);await saveArchive("game",digest,data);
         el<HTMLProgressElement>("progress").value=.75;
         return JSZip.loadAsync(data);
     }
-    const cached=await readArchive(digest);
+    const cached=await readArchive("game",digest);
     if(cached){
         el("loading-text").textContent="正在从浏览器缓存加载资源…";
-        try{await verifyArchive(cached,digest);el<HTMLProgressElement>("progress").value=.75;return JSZip.loadAsync(cached);}catch{/* Redownload a corrupt local cache. */}
+        el<HTMLProgressElement>("progress").value=.75;
+        return JSZip.loadAsync(cached);
     }
     const response = await fetch(manifest.browserArchive.url || path(`game-data-v1.zip?sha256=${digest}`));
     if (!response.ok || !response.body) throw new Error(`资源下载失败 (${response.status})`);
@@ -100,7 +101,7 @@ async function archive(manifest:AssetsManifest) {
         const speed = received / Math.max((performance.now()-downloadStarted)/1000,.1) / 1048576;
         el("loading-text").textContent = `下载资源 ${(received / 1048576).toFixed(1)}${total ? " / " + (total / 1048576).toFixed(1) : ""} MB · ${speed.toFixed(1)} MB/s`;
     }
-    const data=await new Blob(parts).arrayBuffer();await verifyArchive(data,digest);await saveArchive(digest,data);
+    const data=await new Blob(parts).arrayBuffer();await verifyArchive(data,digest);await saveArchive("game",digest,data);
     return JSZip.loadAsync(data);
 }
 async function chineseMenus():Promise<JSZip>{
@@ -111,13 +112,11 @@ async function chineseMenus():Promise<JSZip>{
 async function extraMaps(manifest:AssetsManifest):Promise<JSZip|undefined> {
     const digest=manifest.mapArchive?.sha256;
     if(!digest)return;
-    const cached=await readArchive(digest);
-    if(cached){
-        try{await verifyArchive(cached,digest);return await JSZip.loadAsync(cached);}catch{/* Download a verified copy. */}
-    }
+    const cached=await readArchive("maps",digest);
+    if(cached)return JSZip.loadAsync(cached);
     const response=await fetch(path(`maps-${digest}.zip`));
     if(!response.ok)throw new Error(`新增地图下载失败 (${response.status})`);
-    const data=await response.arrayBuffer();await verifyArchive(data,digest);await saveArchive(digest,data);
+    const data=await response.arrayBuffer();await verifyArchive(data,digest);await saveArchive("maps",digest,data);
     return JSZip.loadAsync(data);
 }
 async function enterRoom(session:RoomSession) {
